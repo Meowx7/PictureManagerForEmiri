@@ -9,7 +9,30 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css" />
+  
+  <!-- FirebaseとGoogleログイン機能を追加 -->
+  <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+  import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyC183tcN__mG5zNx2FG__9g3zkZWpszJ_k",
+    authDomain: "picturemanager-f139d.firebaseapp.com",
+    projectId: "picturemanager-f139d",
+    storageBucket: "picturemanager-f139d.firebasestorage.app",
+    messagingSenderId: "893316957167",
+    appId: "G-KBZTDL34JY"
+  };
+const app = initializeApp(firebaseConfig);
+  window.fb = {
+    db: getFirestore(app),
+    auth: getAuth(app),
+    provider: new GoogleAuthProvider(),
+    doc, setDoc, onSnapshot, signInWithPopup, signOut, onAuthStateChanged, getDoc
+  };
+</script>
 </head>
 <body>
   <div id="root"></div>
@@ -82,9 +105,23 @@
     };
 
     function App() {
+      // すべてのフックをトップレベルで定義（条件分岐の前に配置）
+      const [user, setUser] = useState(null);
+      const [isAuthReady, setIsAuthReady] = useState(false);
+      
       const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("dark_mode") === "true");
-// 表示幅の状態を追加（初期値は標準的な600px）
-const [appWidth, setAppWidth] = useState(() => localStorage.getItem("app_width") || "600px");
+      const quickBtnStyle = (isDark) => ({
+        flex: 1,
+        padding: '8px 0',
+        fontSize: '11px',
+        borderRadius: '6px',
+        border: '1px solid ' + (isDark ? '#444' : '#ccc'),
+        background: isDark ? '#333' : '#fff',
+        color: isDark ? '#fff' : '#333',
+        cursor: 'pointer'
+      });
+      const [appWidth, setAppWidth] = useState(() => localStorage.getItem("app_width") || "600px");
+      
       const [groups, setGroups] = useState(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
@@ -129,8 +166,20 @@ const [appWidth, setAppWidth] = useState(() => localStorage.getItem("app_width")
       const [tempMainUrl, setTempMainUrl] = useState("");
       const [selectedItemIds, setSelectedItemIds] = useState([]);
 
-      const showError = (msg) => { setErrorMsg(msg); setTimeout(() => setErrorMsg(""), 3000); };
+      // Firebaseのログイン状態を監視するuseEffect
+      useEffect(() => {
+        if (!window.fb) {
+          setIsAuthReady(true);
+          return;
+        }
+        const unsubscribe = window.fb.onAuthStateChanged(window.fb.auth, (currentUser) => {
+          setUser(currentUser);
+          setIsAuthReady(true);
+        });
+        return () => unsubscribe();
+      }, []);
 
+      // 他のuseEffectもここに配置
       useEffect(() => {
         try {
           const raw = localStorage.getItem(STORAGE_KEY);
@@ -141,15 +190,37 @@ const [appWidth, setAppWidth] = useState(() => localStorage.getItem("app_width")
         } catch(e) { console.error(e); }
       }, []);
 
-useEffect(() => { 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); 
-  localStorage.setItem("dark_mode", isDarkMode);
-  localStorage.setItem("app_width", appWidth); // この行を追加
-}, [groups, items, isDarkMode, appWidth]); // appWidthを監視対象に追加
+      useEffect(() => { 
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); 
+        localStorage.setItem("dark_mode", isDarkMode);
+        localStorage.setItem("app_width", appWidth);
+      }, [groups, items, isDarkMode, appWidth]);
 
       useEffect(() => {
         if (!isManageMode) setSelectedItemIds([]);
       }, [isManageMode]);
+
+      // Googleログイン処理
+      const handleGoogleLogin = async () => {
+        try {
+          await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
+        } catch (error) {
+          console.error("ログインエラー:", error);
+          showError("ログインに失敗しました");
+        }
+      };
+
+      // ログアウト処理
+      const handleLogout = async () => {
+        try {
+          await window.fb.signOut(window.fb.auth);
+        } catch (error) {
+          console.error("ログアウトエラー:", error);
+          showError("ログアウトに失敗しました");
+        }
+      };
+
+      const showError = (msg) => { setErrorMsg(msg); setTimeout(() => setErrorMsg(""), 3000); };
 
       const updateItem = useCallback((id, key, val) => {
         setItems(p => p.map(i => i.id === id ? { ...i, [key]: val } : i));
@@ -199,49 +270,47 @@ useEffect(() => {
         reader.readAsText(file);
         e.target.value = "";
       };
-// ここから追加
-    const loadExternalTemplate = async () => {
-      try {
-        // 同じ階層にある template.csv を取得
-        const response = await fetch('template.csv');
-        if (!response.ok) throw new Error('テンプレートファイルが見つかりません');
-        
-        const csvText = await response.text();
-        const rows = parseCSV(csvText);
-        const now = Date.now();
-        
-        const newItems = rows.map((l, index) => {
-          if (!l || l.length < 2) return null;
-          // アップロードされた「ガチ.csv」のような3列形式にも対応
-          const isShortFormat = l.length < 10;
-          return {
-            id: genId(),
-            group: isShortFormat ? selectedGroup : (l[0] || selectedGroup),
-            member: isShortFormat ? selectedMember : (l[1] || selectedMember),
-            name: isShortFormat ? l[1] : (l[2] || "名称なし"),
-            thumbnail: isShortFormat ? l[0] : (l[7] || ""),
-            otherImages: isShortFormat ? (l[2] ? l[2].split(/[\n ]+/) : []) : (l[11] ? l[11].split("|") : []),
-            yori: isShortFormat ? 0 : (parseInt(l[3])||0), 
-            chuu: isShortFormat ? 0 : (parseInt(l[4])||0), 
-            hiki: isShortFormat ? 0 : (parseInt(l[5])||0),
-            syori: isShortFormat ? 0 : (parseInt(l[12])||0),
-            schuu: isShortFormat ? 0 : (parseInt(l[13])||0),
-            shiki: isShortFormat ? 0 : (parseInt(l[14])||0),
-            memo: isShortFormat ? "" : (l[6]||""),
-            price: isShortFormat ? "" : (l[8]||"").slice(0, 9),
-            source: isShortFormat ? "入手先" : (l[9]||"入手先"),
-            isWish: isShortFormat ? false : (l[10]==="1"),
-            createdAt: now - index
-          };
-        }).filter(Boolean);
 
-        setItems(p => [...newItems, ...p]);
-        showError(`${newItems.length}件のテンプレートを読み込みました`);
-      } catch (err) {
-        showError("読み込み失敗: " + err.message);
-      }
-    };
-    // ここまで追加
+      const loadExternalTemplate = async () => {
+        try {
+          const response = await fetch('template.csv');
+          if (!response.ok) throw new Error('テンプレートファイルが見つかりません');
+          
+          const csvText = await response.text();
+          const rows = parseCSV(csvText);
+          const now = Date.now();
+          
+          const newItems = rows.map((l, index) => {
+            if (!l || l.length < 2) return null;
+            const isShortFormat = l.length < 10;
+            return {
+              id: genId(),
+              group: isShortFormat ? selectedGroup : (l[0] || selectedGroup),
+              member: isShortFormat ? selectedMember : (l[1] || selectedMember),
+              name: isShortFormat ? l[1] : (l[2] || "名称なし"),
+              thumbnail: isShortFormat ? l[0] : (l[7] || ""),
+              otherImages: isShortFormat ? (l[2] ? l[2].split(/[\n ]+/) : []) : (l[11] ? l[11].split("|") : []),
+              yori: isShortFormat ? 0 : (parseInt(l[3])||0), 
+              chuu: isShortFormat ? 0 : (parseInt(l[4])||0), 
+              hiki: isShortFormat ? 0 : (parseInt(l[5])||0),
+              syori: isShortFormat ? 0 : (parseInt(l[12])||0),
+              schuu: isShortFormat ? 0 : (parseInt(l[13])||0),
+              shiki: isShortFormat ? 0 : (parseInt(l[14])||0),
+              memo: isShortFormat ? "" : (l[6]||""),
+              price: isShortFormat ? "" : (l[8]||"").slice(0, 9),
+              source: isShortFormat ? "入手先" : (l[9]||"入手先"),
+              isWish: isShortFormat ? false : (l[10]==="1"),
+              createdAt: now - index
+            };
+          }).filter(Boolean);
+
+          setItems(p => [...newItems, ...p]);
+          showError(`${newItems.length}件のテンプレートを読み込みました`);
+        } catch (err) {
+          showError("読み込み失敗: " + err.message);
+        }
+      };
+
       const sortedItems = useMemo(() => {
         let filtered = items.filter(i => 
           (selectedGroup === "ALL" || i.group === selectedGroup) && 
@@ -319,17 +388,67 @@ useEffect(() => {
         }
       };
 
+      // ログイン前の画面を条件分岐で表示（早期リターンではなく）
+      if (!isAuthReady) {
+        return (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a' }}>
+            <div style={{ color: '#fff' }}>読み込み中...</div>
+          </div>
+        );
+      }
+
+      if (!user) {
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a', gap: 20 }}>
+            <h1 style={{ color: '#fff', fontSize: 24, margin: 0 }}>生写真管理For=Love</h1>
+            <p style={{ color: '#aaa', margin: 0 }}>Googleアカウントでログインしてください</p>
+            <button 
+              onClick={handleGoogleLogin}
+              style={{
+                padding: '12px 32px',
+                fontSize: 16,
+                background: '#4285f4',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18">
+                <path fill="#fff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+                <path fill="#fff" d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.836.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.96v2.332C2.44 15.983 5.485 18 9.003 18z"/>
+                <path fill="#fff" d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
+                <path fill="#fff" d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.428 0 9.002 0 5.485 0 2.44 2.017.96 4.958L3.967 7.29c.708-2.127 2.692-3.71 5.036-3.71z"/>
+              </svg>
+              Googleでログイン
+            </button>
+          </div>
+        );
+      }
+
+      // メインのアプリ画面（ログイン後）
       return (
 <div className={isDarkMode ? "dark-mode" : ""} style={{ 
-  maxWidth: appWidth,   // 設定された幅を適用
-  margin: '0 auto',     // 画面中央に配置
+  maxWidth: appWidth,
+  margin: '0 auto',
   minHeight: '100vh',
-  transition: 'max-width 0.3s' // 切り替えをスムーズにする
+  transition: 'max-width 0.3s'
 }}>
           {errorMsg && <div className="error-toast">⚠️ {errorMsg}</div>}
           <div className="top-bar">
             <h3>生写真管理 made by @kken_owo for =Love</h3>
             <div style={{display:'flex', gap:8}}>
+              {/* ユーザー情報とログアウトボタン */}
+              {user && (
+                <div style={{display:'flex', alignItems:'center', gap:8, fontSize:12}}>
+                  <img src={user.photoURL} alt="avatar" style={{width:24, height:24, borderRadius:'50%'}} />
+                  <span>{user.displayName}</span>
+                  <button onClick={handleLogout} style={{padding:'6px 8px'}} title="ログアウト">🚪</button>
+                </div>
+              )}
               <button className="csv-btn" onClick={() => {
                 const csvData = items.map(i => [
                   i.group, i.member, i.name, i.yori, i.chuu, i.hiki, i.memo||"", i.thumbnail||"", i.price||"", i.source||"入手先", i.isWish?"1":"0", (i.otherImages||[]).join("|"), i.syori||0, i.schuu||0, i.shiki||0
@@ -463,11 +582,22 @@ useEffect(() => {
                         </div>
                       ))}
                     </div>
-                    <div className="row-inputs">
-                      <select className="source-select" value={i.source || "入手先"} onChange={e=>updateItem(i.id, 'source', e.target.value)}>
+                    <div className="row-inputs" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                      <select 
+                        className="source-select" 
+                        value={i.source || "入手先"} 
+                        onChange={e => updateItem(i.id, 'source', e.target.value)}
+                        style={{ height: '36px' }} 
+                      >
                         {SOURCE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                       </select>
-                      <input className="details-input" style={{flex: 1}} placeholder="メモ" value={i.memo||""} onChange={e=>updateItem(i.id,'memo',e.target.value)} />
+                      <input 
+                        className="details-input" 
+                        style={{ flex: '1 1 150px', height: '36px' }} 
+                        placeholder="メモ" 
+                        value={i.memo || ""} 
+                        onChange={e => updateItem(i.id, 'memo', e.target.value)} 
+                      />
                       <div className="price-wrapper">
                         <input className="details-input" style={{width:'100%'}} placeholder="価格" 
                           value={formatWithComma(i.price)} 
@@ -491,7 +621,7 @@ useEffect(() => {
                 <span style={{fontSize:12, fontW:'bold'}}>{selectedItemIds.length}件選択中</span>
               </div>
               <div style={{display:'flex', gap:8}}>
-                <button className="batch-btn" onClick={() => batchAction('wish')}>一括</button>
+                <button className="batch-btn" onClick={() => batchAction('wish')}>一括お気に入り</button>
                 <button className="batch-btn" onClick={() => batchAction('stock')}>すべて+1</button>
                 <button className="batch-btn" style={{background:'#000'}} onClick={() => batchAction('delete')}>削除</button>
               </div>
@@ -511,24 +641,44 @@ useEffect(() => {
               <div className="modal-content" onClick={e=>e.stopPropagation()}>
 {activeModal === 'app_settings' && (
   <div>
-    <h3 style={{margin:'0 0 15px 0'}}>アプリ設定</h3>
+    <h3 style={{margin:'0 0 15px 0'}}>表示設定</h3>
     
-    {/* --- 幅選択メニューを追加 --- */}
-    <div style={{marginBottom: '15px', padding: '0 10px'}}>
-      <label style={{fontSize: '12px', display: 'block', marginBottom: '5px', color: '#888'}}>表示幅の変更:</label>
-      <select 
-        value={appWidth} 
-        onChange={(e) => setAppWidth(e.target.value)} 
-        style={{width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ccc'}}
-      >
-        <option value="450px">スリム (スマホ向き)</option>
-        <option value="600px">標準</option>
-        <option value="850px">ワイド (PC向き)</option>
-        <option value="100%">フル画面</option>
-      </select>
-    </div>
-    {/* ------------------------- */}
+    <div style={{
+      marginBottom: '20px', 
+      padding: '15px', 
+      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+      borderRadius: '12px',
+      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+    }}>
+      <label style={{fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between'}}>
+        <span>サイトの幅</span>
+        <b>{appWidth === '100%' ? 'フル画面' : appWidth}</b>
+      </label>
+      
+      <input 
+        type="range" 
+        min="350" 
+        max="1200" 
+        step="10"
+        value={appWidth === '100%' ? 1200 : parseInt(appWidth)} 
+        onChange={(e) => setAppWidth(`${e.target.value}px`)}
+        style={{
+          width: '100%', 
+          height: '30px', 
+          cursor: 'pointer',
+          accentColor: '#2196f3'
+        }}
+      />
 
+      <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
+        <button onClick={() => setAppWidth('400px')} style={quickBtnStyle(isDarkMode)}>スマホ</button>
+        <button onClick={() => setAppWidth('600px')} style={quickBtnStyle(isDarkMode)}>標準</button>
+        <button onClick={() => setAppWidth('900px')} style={quickBtnStyle(isDarkMode)}>ワイド</button>
+        <button onClick={() => setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
+      </div>
+    </div>
+
+                    
     <ul className="settings-list">
                       <li onClick={handleCacheClear}>キャッシュ（全データ）削除</li>
                       <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>規約</li>
