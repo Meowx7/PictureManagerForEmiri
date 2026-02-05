@@ -25,7 +25,7 @@
     messagingSenderId: "893316957167",
     appId: "G-KBZTDL34JY"
   };
-const app = initializeApp(firebaseConfig);
+  const app = initializeApp(firebaseConfig);
   window.fb = {
     db: getFirestore(app),
     auth: getAuth(app),
@@ -105,9 +105,10 @@ const app = initializeApp(firebaseConfig);
     };
 
     function App() {
-      // すべてのフックをトップレベルで定義（条件分岐の前に配置）
       const [user, setUser] = useState(null);
       const [isAuthReady, setIsAuthReady] = useState(false);
+      const [isLoading, setIsLoading] = useState(false);
+      const [lastSaved, setLastSaved] = useState(null);
       
       const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("dark_mode") === "true");
       const quickBtnStyle = (isDark) => ({
@@ -172,38 +173,106 @@ const app = initializeApp(firebaseConfig);
           setIsAuthReady(true);
           return;
         }
-        const unsubscribe = window.fb.onAuthStateChanged(window.fb.auth, (currentUser) => {
+        const unsubscribe = window.fb.onAuthStateChanged(window.fb.auth, async (currentUser) => {
           setUser(currentUser);
           setIsAuthReady(true);
+          
+          // ユーザーがログインしたらFirestoreからデータを読み込む
+          if (currentUser) {
+            await loadFromFirestore(currentUser.uid);
+          }
         });
         return () => unsubscribe();
       }, []);
 
-      // 他のuseEffectもここに配置
-      useEffect(() => {
+      // Firestoreからデータを読み込む関数
+      const loadFromFirestore = async (userId) => {
         try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) { 
-            const p = JSON.parse(raw); 
-            if (Array.isArray(p.items)) setItems(p.items); 
+          setIsLoading(true);
+          const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
+          const docSnap = await window.fb.getDoc(docRef);
+          
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            console.log("Firestoreからデータを読み込みました:", data);
+            
+            if (Array.isArray(data.groups) && data.groups.length > 0) {
+              setGroups(data.groups);
+              setSelectedGroup(data.groups[0].name);
+              if (data.groups[0].members.length > 0) {
+                setSelectedMember(data.groups[0].members[0]);
+              }
+            }
+            
+            if (Array.isArray(data.items)) {
+              setItems(data.items);
+            }
+            
+            showError("クラウドからデータを読み込みました");
+            setLastSaved(new Date().toLocaleTimeString());
+          } else {
+            console.log("Firestoreにデータがありません。ローカルデータを保存します。");
+            // 初回ログイン時はローカルデータをFirestoreに保存
+            await saveToFirestore(userId);
           }
-        } catch(e) { console.error(e); }
-      }, []);
+        } catch (error) {
+          console.error("Firestore読み込みエラー:", error);
+          showError("クラウドデータの読み込みに失敗しました");
+        } finally {
+          setIsLoading(false);
+        }
+      };
 
+      // Firestoreにデータを保存する関数
+      const saveToFirestore = async (userId) => {
+        if (!userId) return;
+        
+        try {
+          setIsLoading(true);
+          const dataToSave = {
+            groups,
+            items,
+            lastUpdated: new Date().toISOString(),
+            appVersion: "1.4.1"
+          };
+          
+          const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
+          await window.fb.setDoc(docRef, dataToSave, { merge: true });
+          
+          console.log("Firestoreに保存しました:", dataToSave);
+          setLastSaved(new Date().toLocaleTimeString());
+          showError("クラウドに保存しました");
+        } catch (error) {
+          console.error("Firestore保存エラー:", error);
+          showError("クラウド保存に失敗しました");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      // ローカルストレージにも保存
       useEffect(() => { 
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); 
         localStorage.setItem("dark_mode", isDarkMode);
         localStorage.setItem("app_width", appWidth);
       }, [groups, items, isDarkMode, appWidth]);
 
+      // データ変更時に自動でFirestoreに保存（デバウンス処理付き）
       useEffect(() => {
-        if (!isManageMode) setSelectedItemIds([]);
-      }, [isManageMode]);
+        if (!user) return;
+        
+        const timer = setTimeout(() => {
+          saveToFirestore(user.uid);
+        }, 2000); // 2秒間隔で自動保存
+        
+        return () => clearTimeout(timer);
+      }, [groups, items, user]);
 
       // Googleログイン処理
       const handleGoogleLogin = async () => {
         try {
-          await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
+          const result = await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
+          console.log("ログイン成功:", result.user);
         } catch (error) {
           console.error("ログインエラー:", error);
           showError("ログインに失敗しました");
@@ -213,11 +282,31 @@ const app = initializeApp(firebaseConfig);
       // ログアウト処理
       const handleLogout = async () => {
         try {
+          // ログアウト前にローカルに保存
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
           await window.fb.signOut(window.fb.auth);
         } catch (error) {
           console.error("ログアウトエラー:", error);
           showError("ログアウトに失敗しました");
         }
+      };
+
+      // 手動でFirestoreに保存
+      const handleManualSave = async () => {
+        if (!user) {
+          showError("ログインしてください");
+          return;
+        }
+        await saveToFirestore(user.uid);
+      };
+
+      // 手動でFirestoreから読み込み
+      const handleManualLoad = async () => {
+        if (!user) {
+          showError("ログインしてください");
+          return;
+        }
+        await loadFromFirestore(user.uid);
       };
 
       const showError = (msg) => { setErrorMsg(msg); setTimeout(() => setErrorMsg(""), 3000); };
@@ -388,7 +477,7 @@ const app = initializeApp(firebaseConfig);
         }
       };
 
-      // ログイン前の画面を条件分岐で表示（早期リターンではなく）
+      // ログイン前の画面
       if (!isAuthReady) {
         return (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a' }}>
@@ -425,25 +514,51 @@ const app = initializeApp(firebaseConfig);
               </svg>
               Googleでログイン
             </button>
+            <p style={{ color: '#777', fontSize: 12, marginTop: 20, textAlign: 'center', maxWidth: 300 }}>
+              ※ログインすると、データがクラウドに自動保存され<br />
+              別の端末でも同じデータを利用できます
+            </p>
           </div>
         );
       }
 
       // メインのアプリ画面（ログイン後）
       return (
-<div className={isDarkMode ? "dark-mode" : ""} style={{ 
-  maxWidth: appWidth,
-  margin: '0 auto',
-  minHeight: '100vh',
-  transition: 'max-width 0.3s'
-}}>
+        <div className={isDarkMode ? "dark-mode" : ""} style={{ 
+          maxWidth: appWidth,
+          margin: '0 auto',
+          minHeight: '100vh',
+          transition: 'max-width 0.3s'
+        }}>
           {errorMsg && <div className="error-toast">⚠️ {errorMsg}</div>}
+          {isLoading && (
+            <div className="loading-overlay">
+              <div className="loading-spinner"></div>
+              <div className="loading-text">同期中...</div>
+            </div>
+          )}
+          
           <div className="top-bar">
-            <h3>生写真管理 made by @kken_owo for =Love</h3>
-            <div style={{display:'flex', gap:8}}>
-              {/* ユーザー情報とログアウトボタン */}
+            <div style={{display:'flex', alignItems:'center', gap:10}}>
+              <h3>生写真管理 made by @kken_owo for =Love</h3>
+              {lastSaved && (
+                <span style={{fontSize:10, color:'#4caf50', background:'rgba(76,175,80,0.1)', padding:'2px 6px', borderRadius:4}}>
+                  保存済み {lastSaved}
+                </span>
+              )}
+            </div>
+            <div style={{display:'flex', gap:8, alignItems:'center'}}>
+              {/* ユーザー情報とクラウド操作ボタン */}
               {user && (
                 <div style={{display:'flex', alignItems:'center', gap:8, fontSize:12}}>
+                  <div style={{display:'flex', gap:4}}>
+                    <button onClick={handleManualSave} style={{padding:'6px 8px', fontSize:10, background:'#4caf50', color:'white', border:'none', borderRadius:4}} title="クラウドに保存">
+                      💾保存
+                    </button>
+                    <button onClick={handleManualLoad} style={{padding:'6px 8px', fontSize:10, background:'#2196f3', color:'white', border:'none', borderRadius:4}} title="クラウドから読み込み">
+                      🔄読込
+                    </button>
+                  </div>
                   <img src={user.photoURL} alt="avatar" style={{width:24, height:24, borderRadius:'50%'}} />
                   <span>{user.displayName}</span>
                   <button onClick={handleLogout} style={{padding:'6px 8px'}} title="ログアウト">🚪</button>
@@ -456,10 +571,10 @@ const app = initializeApp(firebaseConfig);
                 const blob = new Blob([csvData], {type:"text/csv"});
                 const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download="photo_data.csv"; a.click();
               }}>出力</button>
-             <label className="import-label">取込
-  <input type="file" accept=".csv" style={{display:'none'}} onChange={handleImportCSV} />
-</label>
-<button className="template-btn" onClick={loadExternalTemplate} style={{marginLeft: '4px'}}>テンプレ読込</button>
+              <label className="import-label">取込
+                <input type="file" accept=".csv" style={{display:'none'}} onChange={handleImportCSV} />
+              </label>
+              <button className="template-btn" onClick={loadExternalTemplate} style={{marginLeft: '4px'}}>テンプレ読込</button>
               <button className="settings-btn" onClick={() => setActiveModal('app_settings')}>⚙️</button>
               <button onClick={()=>setIsDarkMode(!isDarkMode)} style={{padding:'6px 8px'}}>{isDarkMode?"☀️":"🌙"}</button>
             </div>
@@ -545,20 +660,19 @@ const app = initializeApp(firebaseConfig);
                       <div style={{flex: 1, minWidth: 0, display:'flex', alignItems:'center', gap:8}}>
                         <button className={`wish-toggle ${i.isWish ? 'active' : ''}`} onClick={() => updateItem(i.id, 'isWish', !i.isWish)}>⭐</button>
                         {editingNameId === i.id ? (
-  <input 
-    className="edit-name-input"
-    autoFocus 
-    value={i.name} 
-    onChange={e => updateItem(i.id, 'name', e.target.value)} 
-    onBlur={() => setEditingNameId(null)}
-    onKeyDown={e => { if(e.key === 'Enter') setEditingNameId(null); }}
-  />
-) : (
-  <span className="name-display" onClick={() => setEditingNameId(i.id)}>
-    {i.name} {comp && "👍️"}
-  </span>
-)}
-
+                          <input 
+                            className="edit-name-input"
+                            autoFocus 
+                            value={i.name} 
+                            onChange={e => updateItem(i.id, 'name', e.target.value)} 
+                            onBlur={() => setEditingNameId(null)}
+                            onKeyDown={e => { if(e.key === 'Enter') setEditingNameId(null); }}
+                          />
+                        ) : (
+                          <span className="name-display" onClick={() => setEditingNameId(i.id)}>
+                            {i.name} {comp && "👍️"}
+                          </span>
+                        )}
                       </div>
                       <button onClick={()=>{ setTargetName(i.name); setTargetId(i.id); setActiveModal('delete_photo'); }} style={{color:'#999', border:'none', background:'none', cursor:'pointer'}}>✕</button>
                     </div>
@@ -639,47 +753,67 @@ const app = initializeApp(firebaseConfig);
           {activeModal && (
             <div className="modal-overlay" onClick={()=>setActiveModal(null)}>
               <div className="modal-content" onClick={e=>e.stopPropagation()}>
-{activeModal === 'app_settings' && (
-  <div>
-    <h3 style={{margin:'0 0 15px 0'}}>表示設定</h3>
-    
-    <div style={{
-      marginBottom: '20px', 
-      padding: '15px', 
-      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-      borderRadius: '12px',
-      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-    }}>
-      <label style={{fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between'}}>
-        <span>サイトの幅</span>
-        <b>{appWidth === '100%' ? 'フル画面' : appWidth}</b>
-      </label>
-      
-      <input 
-        type="range" 
-        min="350" 
-        max="1200" 
-        step="10"
-        value={appWidth === '100%' ? 1200 : parseInt(appWidth)} 
-        onChange={(e) => setAppWidth(`${e.target.value}px`)}
-        style={{
-          width: '100%', 
-          height: '30px', 
-          cursor: 'pointer',
-          accentColor: '#2196f3'
-        }}
-      />
-
-      <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-        <button onClick={() => setAppWidth('400px')} style={quickBtnStyle(isDarkMode)}>スマホ</button>
-        <button onClick={() => setAppWidth('600px')} style={quickBtnStyle(isDarkMode)}>標準</button>
-        <button onClick={() => setAppWidth('900px')} style={quickBtnStyle(isDarkMode)}>ワイド</button>
-        <button onClick={() => setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
-      </div>
-    </div>
-
+                {activeModal === 'app_settings' && (
+                  <div>
+                    <h3 style={{margin:'0 0 15px 0'}}>表示設定</h3>
                     
-    <ul className="settings-list">
+                    <div style={{
+                      marginBottom: '20px', 
+                      padding: '15px', 
+                      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                      borderRadius: '12px',
+                      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                    }}>
+                      <label style={{fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between'}}>
+                        <span>サイトの幅</span>
+                        <b>{appWidth === '100%' ? 'フル画面' : appWidth}</b>
+                      </label>
+                      
+                      <input 
+                        type="range" 
+                        min="350" 
+                        max="1200" 
+                        step="10"
+                        value={appWidth === '100%' ? 1200 : parseInt(appWidth)} 
+                        onChange={(e) => setAppWidth(`${e.target.value}px`)}
+                        style={{
+                          width: '100%', 
+                          height: '30px', 
+                          cursor: 'pointer',
+                          accentColor: '#2196f3'
+                        }}
+                      />
+
+                      <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
+                        <button onClick={() => setAppWidth('400px')} style={quickBtnStyle(isDarkMode)}>スマホ</button>
+                        <button onClick={() => setAppWidth('600px')} style={quickBtnStyle(isDarkMode)}>標準</button>
+                        <button onClick={() => setAppWidth('900px')} style={quickBtnStyle(isDarkMode)}>ワイド</button>
+                        <button onClick={() => setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      marginBottom: '20px', 
+                      padding: '15px', 
+                      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                      borderRadius: '12px',
+                      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                    }}>
+                      <h4 style={{marginTop:0}}>クラウド同期</h4>
+                      <p style={{fontSize:'12px', color:'#666'}}>
+                        データは自動的にFirestoreに保存されます。<br/>
+                        別の端末で同じGoogleアカウントでログインするとデータが同期されます。
+                      </p>
+                      {user && (
+                        <div style={{marginTop:'10px', fontSize:'12px'}}>
+                          <div>ユーザー: {user.displayName}</div>
+                          <div>メール: {user.email}</div>
+                          {lastSaved && <div>最終保存: {lastSaved}</div>}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <ul className="settings-list">
                       <li onClick={handleCacheClear}>キャッシュ（全データ）削除</li>
                       <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>規約</li>
                       <li onClick={() => window.open("https://github.com/Meowx7", "_blank")}>GitHub</li>
