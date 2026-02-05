@@ -371,43 +371,81 @@ const saveToFirestore = async (userId) => {
       };
 
       const loadExternalTemplate = async () => {
-        try {
-          const response = await fetch('template.csv');
-          if (!response.ok) throw new Error('テンプレートファイルが見つかりません');
-          
-          const csvText = await response.text();
-          const rows = parseCSV(csvText);
-          const now = Date.now();
-          
-          const newItems = rows.map((l, index) => {
-            if (!l || l.length < 2) return null;
-            const isShortFormat = l.length < 10;
-            return {
-              id: genId(),
-              group: isShortFormat ? selectedGroup : (l[0] || selectedGroup),
-              member: isShortFormat ? selectedMember : (l[1] || selectedMember),
-              name: isShortFormat ? l[1] : (l[2] || "名称なし"),
-              thumbnail: isShortFormat ? l[0] : (l[7] || ""),
-              otherImages: isShortFormat ? (l[2] ? l[2].split(/[\n ]+/) : []) : (l[11] ? l[11].split("|") : []),
-              yori: isShortFormat ? 0 : (parseInt(l[3])||0), 
-              chuu: isShortFormat ? 0 : (parseInt(l[4])||0), 
-              hiki: isShortFormat ? 0 : (parseInt(l[5])||0),
-              syori: isShortFormat ? 0 : (parseInt(l[12])||0),
-              schuu: isShortFormat ? 0 : (parseInt(l[13])||0),
-              shiki: isShortFormat ? 0 : (parseInt(l[14])||0),
-              memo: isShortFormat ? "" : (l[6]||""),
-              price: isShortFormat ? "" : (l[8]||"").slice(0, 9),
-              source: isShortFormat ? "入手先" : (l[9]||"入手先"),
-              isWish: isShortFormat ? false : (l[10]==="1"),
-              createdAt: now - index
-            };
-          }).filter(Boolean);
-
-          setItems(p => [...newItems, ...p]);
-          showError(`${newItems.length}件のテンプレートを読み込みました`);
-        } catch (err) {
-          showError("読み込み失敗: " + err.message);
+  try {
+    let allItems = [];
+    let loadedCount = 0;
+    
+    // template_part001.csv から template_part034.csv まで順番に読み込む
+    for (let i = 1; i <= 34; i++) {
+      const fileNumber = i.toString().padStart(3, '0'); // 001, 002, ...
+      const fileName = `template_part${fileNumber}.csv`;
+      
+      try {
+        const response = await fetch(`template1/${fileName}`);
+        if (!response.ok) {
+          console.log(`${fileName} が見つかりません、スキップします`);
+          continue;
         }
+        
+        const csvText = await response.text();
+        const rows = parseCSV(csvText);
+        const now = Date.now();
+        
+        const newItems = rows.map((l, index) => {
+          if (!l || l.length < 2) return null;
+          const isShortFormat = l.length < 10;
+          return {
+            id: genId(),
+            group: isShortFormat ? selectedGroup : (l[0] || selectedGroup),
+            member: isShortFormat ? selectedMember : (l[1] || selectedMember),
+            name: isShortFormat ? l[1] : (l[2] || "名称なし"),
+            thumbnail: isShortFormat ? l[0] : (l[7] || ""),
+            otherImages: isShortFormat ? (l[2] ? l[2].split(/[\n ]+/) : []) : (l[11] ? l[11].split("|") : []),
+            yori: isShortFormat ? 0 : (parseInt(l[3])||0), 
+            chuu: isShortFormat ? 0 : (parseInt(l[4])||0), 
+            hiki: isShortFormat ? 0 : (parseInt(l[5])||0),
+            syori: isShortFormat ? 0 : (parseInt(l[12])||0),
+            schuu: isShortFormat ? 0 : (parseInt(l[13])||0),
+            shiki: isShortFormat ? 0 : (parseInt(l[14])||0),
+            memo: isShortFormat ? "" : (l[6]||""),
+            price: isShortFormat ? "" : (l[8]||"").slice(0, 9),
+            source: isShortFormat ? "入手先" : (l[9]||"入手先"),
+            isWish: isShortFormat ? false : (l[10]==="1"),
+            createdAt: now - index - (34 - i) * 1000 // ファイル番号でソート順を調整
+          };
+        }).filter(Boolean);
+        
+        allItems = [...allItems, ...newItems];
+        loadedCount++;
+        
+      } catch (err) {
+        console.log(`${fileName} の読み込みに失敗:`, err.message);
+      }
+    }
+    
+    if (allItems.length === 0) {
+      showError("テンプレートファイルが見つかりませんでした");
+      return;
+    }
+    
+    setItems(p => [...allItems, ...p]);
+    showError(`${loadedCount}個のテンプレートファイルから ${allItems.length}件を読み込みました`);
+    
+  } catch (err) {
+    showError("読み込み失敗: " + err.message);
+  }
+};
+
+      // CSV出力関数
+      const handleCSVExport = () => {
+        const csvData = items.map(i => [
+          i.group, i.member, i.name, i.yori, i.chuu, i.hiki, i.memo||"", i.thumbnail||"", i.price||"", i.source||"入手先", i.isWish?"1":"0", (i.otherImages||[]).join("|"), i.syori||0, i.schuu||0, i.shiki||0
+        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+        const blob = new Blob([csvData], {type:"text/csv"});
+        const a = document.createElement("a"); 
+        a.href = URL.createObjectURL(blob); 
+        a.download="photo_data.csv"; 
+        a.click();
       };
 
       const sortedItems = useMemo(() => {
@@ -550,43 +588,81 @@ const saveToFirestore = async (userId) => {
           
           <div className="top-bar">
             <div style={{display:'flex', alignItems:'center', gap:10}}>
-              <h3>生写真管理 made by @kken_owo for =Love</h3>
+              <h3 style={{margin: 0, fontSize: '16px'}}>生写真管理For=Love</h3>
               {lastSaved && (
-                <span style={{fontSize:10, color:'#4caf50', background:'rgba(76,175,80,0.1)', padding:'2px 6px', borderRadius:4}}>
-                  保存済み {lastSaved}
+                <span style={{
+                  fontSize:10, 
+                  color:'#4caf50', 
+                  background:'rgba(76,175,80,0.1)', 
+                  padding:'2px 6px', 
+                  borderRadius:4,
+                  fontWeight: 'bold'
+                }}>
+                  ✓ {lastSaved}
                 </span>
               )}
             </div>
             <div style={{display:'flex', gap:8, alignItems:'center'}}>
-              {/* ユーザー情報とクラウド操作ボタン */}
+              {/* ユーザー情報（アバターと名前のみ） */}
               {user && (
-                <div style={{display:'flex', alignItems:'center', gap:8, fontSize:12}}>
-                  <div style={{display:'flex', gap:4}}>
-                    <button onClick={handleManualSave} style={{padding:'6px 8px', fontSize:10, background:'#4caf50', color:'white', border:'none', borderRadius:4}} title="クラウドに保存">
-                      💾保存
-                    </button>
-                    <button onClick={handleManualLoad} style={{padding:'6px 8px', fontSize:10, background:'#2196f3', color:'white', border:'none', borderRadius:4}} title="クラウドから読み込み">
-                      🔄読込
-                    </button>
-                  </div>
-                  <img src={user.photoURL} alt="avatar" style={{width:24, height:24, borderRadius:'50%'}} />
-                  <span>{user.displayName}</span>
-                  <button onClick={handleLogout} style={{padding:'6px 8px'}} title="ログアウト">🚪</button>
+                <div style={{
+                  display:'flex', 
+                  alignItems:'center', 
+                  gap:6, 
+                  fontSize:12,
+                  padding: '4px 8px',
+                  background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
+                  borderRadius: '20px'
+                }}>
+                  <img src={user.photoURL} alt="avatar" style={{
+                    width:24, 
+                    height:24, 
+                    borderRadius:'50%',
+                    border: isDarkMode ? '1px solid #444' : '1px solid #ddd'
+                  }} />
+                  <span style={{
+                    fontWeight: 'bold',
+                    color: isDarkMode ? '#fff' : '#333',
+                    maxWidth: '100px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {user.displayName}
+                  </span>
                 </div>
               )}
-              <button className="csv-btn" onClick={() => {
-                const csvData = items.map(i => [
-                  i.group, i.member, i.name, i.yori, i.chuu, i.hiki, i.memo||"", i.thumbnail||"", i.price||"", i.source||"入手先", i.isWish?"1":"0", (i.otherImages||[]).join("|"), i.syori||0, i.schuu||0, i.shiki||0
-                ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-                const blob = new Blob([csvData], {type:"text/csv"});
-                const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download="photo_data.csv"; a.click();
-              }}>出力</button>
-              <label className="import-label">取込
-                <input type="file" accept=".csv" style={{display:'none'}} onChange={handleImportCSV} />
-              </label>
-              <button className="template-btn" onClick={loadExternalTemplate} style={{marginLeft: '4px'}}>テンプレ読込</button>
-              <button className="settings-btn" onClick={() => setActiveModal('app_settings')}>⚙️</button>
-              <button onClick={()=>setIsDarkMode(!isDarkMode)} style={{padding:'6px 8px'}}>{isDarkMode?"☀️":"🌙"}</button>
+              <button 
+                onClick={() => setActiveModal('app_settings')}
+                style={{
+                  padding:'6px 12px',
+                  background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
+                  border: isDarkMode ? '1px solid #444' : '1px solid #ddd',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: isDarkMode ? '#fff' : '#333'
+                }}
+              >
+                ⚙️ 設定
+              </button>
+              <button 
+                onClick={()=>setIsDarkMode(!isDarkMode)}
+                style={{
+                  padding:'6px 8px',
+                  background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
+                  border: isDarkMode ? '1px solid #444' : '1px solid #ddd',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '16px'
+                }}
+              >
+                {isDarkMode?"☀️":"🌙"}
+              </button>
             </div>
           </div>
 
@@ -765,15 +841,135 @@ const saveToFirestore = async (userId) => {
               <div className="modal-content" onClick={e=>e.stopPropagation()}>
                 {activeModal === 'app_settings' && (
                   <div>
-                    <h3 style={{margin:'0 0 15px 0'}}>表示設定</h3>
+                    <h3 style={{margin:'0 0 15px 0'}}>設定</h3>
                     
+                    {/* アカウント情報セクション */}
+                    {user && (
+                      <div style={{
+                        marginBottom: '15px', 
+                        padding: '15px', 
+                        background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                        borderRadius: '12px',
+                        border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                      }}>
+                        <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px'}}>
+                          <img src={user.photoURL} alt="avatar" style={{width:40, height:40, borderRadius:'50%'}} />
+                          <div>
+                            <div style={{fontWeight: 'bold', fontSize: '14px'}}>{user.displayName}</div>
+                            <div style={{fontSize: '11px', color: '#666'}}>{user.email}</div>
+                          </div>
+                        </div>
+                        {lastSaved && (
+                          <div style={{fontSize: '12px', color: '#4caf50', textAlign: 'center'}}>
+                            ✓ 最終保存: {lastSaved}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* クラウド操作セクション */}
                     <div style={{
-                      marginBottom: '20px', 
+                      marginBottom: '15px', 
                       padding: '15px', 
                       background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
                       borderRadius: '12px',
                       border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
                     }}>
+                      <h4 style={{marginTop:0, marginBottom: '10px'}}>クラウド同期</h4>
+                      <div style={{display: 'flex', gap: '8px', marginBottom: '10px'}}>
+                        <button onClick={handleManualSave} style={{
+                          flex: 1,
+                          padding: '10px',
+                          background: '#4caf50',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}>
+                          💾 手動保存
+                        </button>
+                        <button onClick={handleManualLoad} style={{
+                          flex: 1,
+                          padding: '10px',
+                          background: '#2196f3',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}>
+                          🔄 手動読込
+                        </button>
+                      </div>
+                      <p style={{fontSize:'11px', color:'#666', margin:0}}>
+                        データは自動的にクラウドに保存されます。<br/>
+                        別の端末で同じアカウントでログインすると同期されます。
+                      </p>
+                    </div>
+
+                    {/* データ操作セクション */}
+                    <div style={{
+                      marginBottom: '15px', 
+                      padding: '15px', 
+                      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                      borderRadius: '12px',
+                      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                    }}>
+                      <h4 style={{marginTop:0, marginBottom: '10px'}}>データ操作</h4>
+                      <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                        <button onClick={handleCSVExport} style={{
+                          padding: '10px',
+                          background: '#ff9800',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}>
+                          📤 CSV出力
+                        </button>
+                        <label style={{
+                          padding: '10px',
+                          background: '#2196f3',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold',
+                          textAlign: 'center'
+                        }}>
+                          📥 CSV取込
+                          <input type="file" accept=".csv" style={{display:'none'}} onChange={handleImportCSV} />
+                        </label>
+                        <button onClick={loadExternalTemplate} style={{
+                          padding: '10px',
+                          background: '#9c27b0',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}>
+                          📄 テンプレート読込
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 表示設定セクション */}
+                    <div style={{
+                      marginBottom: '15px', 
+                      padding: '15px', 
+                      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                      borderRadius: '12px',
+                      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                    }}>
+                      <h4 style={{marginTop:0, marginBottom: '10px'}}>表示設定</h4>
                       <label style={{fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between'}}>
                         <span>サイトの幅</span>
                         <b>{appWidth === '100%' ? 'フル画面' : appWidth}</b>
@@ -801,35 +997,26 @@ const saveToFirestore = async (userId) => {
                         <button onClick={() => setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
                       </div>
                     </div>
-
-                    <div style={{
-                      marginBottom: '20px', 
-                      padding: '15px', 
-                      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                      borderRadius: '12px',
-                      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                    }}>
-                      <h4 style={{marginTop:0}}>クラウド同期</h4>
-                      <p style={{fontSize:'12px', color:'#666'}}>
-                        データは自動的にFirestoreに保存されます。<br/>
-                        別の端末で同じGoogleアカウントでログインするとデータが同期されます。
-                      </p>
-                      {user && (
-                        <div style={{marginTop:'10px', fontSize:'12px'}}>
-                          <div>ユーザー: {user.displayName}</div>
-                          <div>メール: {user.email}</div>
-                          {lastSaved && <div>最終保存: {lastSaved}</div>}
-                        </div>
-                      )}
-                    </div>
                     
+                    {/* 設定リスト */}
                     <ul className="settings-list">
-                      <li onClick={handleCacheClear}>キャッシュ（全データ）削除</li>
-                      <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>規約</li>
-                      <li onClick={() => window.open("https://github.com/Meowx7", "_blank")}>GitHub</li>
-                      <li style={{color:'#888', cursor:'default'}}>Version 1.4.1</li>
+                      <li onClick={handleCacheClear}>🗑️ キャッシュ（全データ）削除</li>
+                      <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>📜 規約</li>
+                      <li onClick={() => window.open("https://github.com/Meowx7", "_blank")}>🐱 GitHub</li>
+                      <li onClick={handleLogout} style={{color: '#ff5252', fontWeight: 'bold'}}>🚪 ログアウト</li>
+                      <li style={{color:'#888', cursor:'default', fontSize: '11px', justifyContent: 'center'}}>Version 1.4.1</li>
                     </ul>
-                    <button onClick={()=>setActiveModal(null)} style={{width:'100%', padding:12, background:'#eee', border:'none', borderRadius:8}}>閉じる</button>
+                    <button onClick={()=>setActiveModal(null)} style={{
+                      width:'100%', 
+                      padding:12, 
+                      background:'#eee', 
+                      border:'none', 
+                      borderRadius:8,
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
+                    }}>
+                      閉じる
+                    </button>
                   </div>
                 )}
                 {activeModal === 'add_photo' && (
