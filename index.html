@@ -223,32 +223,42 @@
         }
       };
 
-      // Firestoreにデータを保存する関数
-      const saveToFirestore = async (userId) => {
-        if (!userId) return;
-        
-        try {
-          setIsLoading(true);
-          const dataToSave = {
-            groups,
-            items,
-            lastUpdated: new Date().toISOString(),
-            appVersion: "1.4.1"
-          };
-          
-          const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
-          await window.fb.setDoc(docRef, dataToSave, { merge: true });
-          
-          console.log("Firestoreに保存しました:", dataToSave);
-          setLastSaved(new Date().toLocaleTimeString());
-          showError("クラウドに保存しました");
-        } catch (error) {
-          console.error("Firestore保存エラー:", error);
-          showError("クラウド保存に失敗しました");
-        } finally {
-          setIsLoading(false);
-        }
-      };
+      // 修正した保存関数の例
+const saveToFirestore = async (userId) => {
+  try {
+    console.log("保存開始:", userId);
+    
+    const dataToSave = {
+      groups,
+      items,
+      lastUpdated: new Date().toISOString()
+    };
+    
+    const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
+    
+    // Firestoreに保存
+    await window.fb.setDoc(docRef, dataToSave, { merge: true });
+    
+    console.log("保存成功");
+    setErrorMsg("クラウドに保存しました ✓");
+    setLastSaved(new Date().toLocaleTimeString());
+    
+  } catch (error) {
+    console.error("保存エラー詳細:", error);
+    
+    // エラーコードに応じたメッセージ
+    if (error.code === 'permission-denied') {
+      setErrorMsg("❌ 保存権限がありません。管理者に連絡してください。");
+    } else if (error.code === 'unavailable') {
+      setErrorMsg("🌐 ネットワーク接続を確認してください");
+    } else {
+      setErrorMsg(`保存失敗: ${error.message}`);
+    }
+    
+    // エラー時はローカルに保存
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
+  }
+};
 
       // ローカルストレージにも保存
       useEffect(() => { 
