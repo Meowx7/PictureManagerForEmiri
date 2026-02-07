@@ -45,32 +45,162 @@
 
     const DEFAULT_GROUPS = [{ name: "=Love", members: ["大谷映美里"] }];
 
+    // 利用可能なテンプレートファイルのリスト
+    const AVAILABLE_TEMPLATES = [
+      'template.csv',
+      'template1.csv',
+      'template2.csv', 
+      'template3.csv',
+      'template4.csv',
+      'template5.csv'
+    ];
+
     const formatWithComma = (val) => {
       if (!val) return "";
       return val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     };
 
-    function parseCSV(text) {
+    // タブ区切り（TSV）とカンマ区切り（CSV）両方に対応したパーサー
+    function parseCSV(text, delimiter = '\t') {
       if (!text) return [];
-      const rows = []; let row = []; let field = ''; let inQuotes = false;
+      const rows = []; 
+      let row = []; 
+      let field = ''; 
+      let inQuotes = false;
+      
       for (let i = 0; i < text.length; i++) {
         const c = text[i], next = text[i+1];
+        
         if (inQuotes) {
-          if (c === '"' && next === '"') { field += '"'; i++; }
-          else if (c === '"') inQuotes = false;
-          else field += c;
+          if (c === '"' && next === '"') { 
+            field += '"'; 
+            i++; 
+          } else if (c === '"') {
+            inQuotes = false;
+          } else {
+            field += c;
+          }
         } else {
-          if (c === '"') inQuotes = true;
-          else if (c === ',') { row.push(field); field = ''; }
-          else if (c === '\n' || c === '\r') {
-            if (field || row.length) { row.push(field); rows.push(row); }
-            row = []; field = ''; if (c === '\r' && next === '\n') i++;
-          } else field += c;
+          if (c === '"') {
+            inQuotes = true;
+          } else if (c === delimiter) { 
+            row.push(field.trim()); 
+            field = ''; 
+          } else if (c === '\n' || c === '\r') {
+            if (field || row.length) { 
+              row.push(field.trim()); 
+              rows.push(row); 
+            }
+            row = []; 
+            field = ''; 
+            if (c === '\r' && next === '\n') i++;
+          } else {
+            field += c;
+          }
         }
       }
-      if (field || row.length) { row.push(field); rows.push(row); }
+      
+      if (field || row.length) { 
+        row.push(field.trim()); 
+        rows.push(row); 
+      }
+      
       return rows;
     }
+
+    // タブ区切りCSV（サンプル形式）をアイテムに変換
+    const parseTabCSVRowToItem = (row, selectedGroup, selectedMember, index = 0) => {
+      if (!row || row.length < 2) return null;
+      
+      const now = Date.now();
+      const createdAt = now - index;
+      
+      // タブ区切りCSV形式: [thumbnail, name, otherImages]
+      // サンプルでは3列目に改行区切りの複数URLがある
+      const thumbnail = row[0] || "";
+      const name = row[1] || "名称なし";
+      let otherImages = [];
+      
+      if (row.length > 2 && row[2]) {
+        // 3列目は複数行のURL（改行区切り）
+        // クォートや余分な空白を処理
+        const imagesText = row[2].replace(/"/g, '').trim();
+        if (imagesText) {
+          otherImages = imagesText.split(/\r?\n/).map(url => url.trim()).filter(url => url);
+        }
+      }
+      
+      return {
+        id: genId(),
+        group: selectedGroup,
+        member: selectedMember,
+        name: name,
+        thumbnail: thumbnail,
+        otherImages: otherImages,
+        yori: 0, 
+        chuu: 0, 
+        hiki: 0,
+        syori: 0,
+        schuu: 0,
+        shiki: 0,
+        memo: "",
+        price: "",
+        source: "入手先",
+        isWish: false,
+        createdAt
+      };
+    };
+
+    // 既存のカンマ区切りCSV用パーサー（互換性維持）
+    const parseCommaCSVRowToItem = (row, selectedGroup, selectedMember, index = 0) => {
+      if (!row || row.length < 2) return null;
+      
+      const now = Date.now();
+      const createdAt = now - index;
+      const isShortFormat = row.length < 10;
+      
+      if (isShortFormat) {
+        return {
+          id: genId(),
+          group: selectedGroup,
+          member: selectedMember,
+          name: row[1] || "名称なし",
+          thumbnail: row[0] || "",
+          otherImages: row[2] ? row[2].split(/[\n ]+/) : [],
+          yori: 0, 
+          chuu: 0, 
+          hiki: 0,
+          syori: 0,
+          schuu: 0,
+          shiki: 0,
+          memo: "",
+          price: "",
+          source: "入手先",
+          isWish: false,
+          createdAt
+        };
+      } else {
+        return {
+          id: genId(),
+          group: row[0] || selectedGroup,
+          member: row[1] || selectedMember,
+          name: row[2] || "名称なし",
+          thumbnail: row[7] || "",
+          otherImages: row[11] ? row[11].split("|") : [],
+          yori: parseInt(row[3]) || 0, 
+          chuu: parseInt(row[4]) || 0, 
+          hiki: parseInt(row[5]) || 0,
+          syori: parseInt(row[12]) || 0,
+          schuu: parseInt(row[13]) || 0,
+          shiki: parseInt(row[14]) || 0,
+          memo: row[6] || "",
+          price: (row[8] || "").slice(0, 9),
+          source: row[9] || "入手先",
+          isWish: row[10] === "1",
+          createdAt
+        };
+      }
+    };
 
     function MiniChart({ percent, color, isDarkMode }) {
       const r = 18; const c = 2 * Math.PI * r;
@@ -109,6 +239,7 @@
       const [isAuthReady, setIsAuthReady] = useState(false);
       const [isLoading, setIsLoading] = useState(false);
       const [lastSaved, setLastSaved] = useState(null);
+      const [availableTemplates, setAvailableTemplates] = useState([]);
       
       const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("dark_mode") === "true");
       const quickBtnStyle = (isDark) => ({
@@ -167,6 +298,26 @@
       const [tempMainUrl, setTempMainUrl] = useState("");
       const [selectedItemIds, setSelectedItemIds] = useState([]);
 
+      // テンプレートファイルの存在確認を行う関数
+      const checkTemplateFiles = useCallback(async () => {
+        const existingTemplates = [];
+        
+        for (const fileName of AVAILABLE_TEMPLATES) {
+          try {
+            const response = await fetch(fileName, { method: 'HEAD' });
+            if (response.ok) {
+              existingTemplates.push(fileName);
+            }
+          } catch (error) {
+            // エラーが発生した場合はファイルが存在しないと判断
+            console.log(`テンプレートファイル ${fileName} は存在しません`);
+          }
+        }
+        
+        setAvailableTemplates(existingTemplates);
+        console.log(`利用可能なテンプレート: ${existingTemplates.length}件`, existingTemplates);
+      }, []);
+
       // Firebaseのログイン状態を監視するuseEffect
       useEffect(() => {
         if (!window.fb) {
@@ -181,9 +332,12 @@
           if (currentUser) {
             await loadFromFirestore(currentUser.uid);
           }
+          
+          // テンプレートファイルの存在確認を行う
+          checkTemplateFiles();
         });
         return () => unsubscribe();
-      }, []);
+      }, [checkTemplateFiles]);
 
       // Firestoreからデータを読み込む関数
       const loadFromFirestore = async (userId) => {
@@ -224,41 +378,41 @@
       };
 
       // 修正した保存関数の例
-const saveToFirestore = async (userId) => {
-  try {
-    console.log("保存開始:", userId);
-    
-    const dataToSave = {
-      groups,
-      items,
-      lastUpdated: new Date().toISOString()
-    };
-    
-    const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
-    
-    // Firestoreに保存
-    await window.fb.setDoc(docRef, dataToSave, { merge: true });
-    
-    console.log("保存成功");
-    setErrorMsg("クラウドに保存しました ✓");
-    setLastSaved(new Date().toLocaleTimeString());
-    
-  } catch (error) {
-    console.error("保存エラー詳細:", error);
-    
-    // エラーコードに応じたメッセージ
-    if (error.code === 'permission-denied') {
-      setErrorMsg("❌ 保存権限がありません。管理者に連絡してください。");
-    } else if (error.code === 'unavailable') {
-      setErrorMsg("🌐 ネットワーク接続を確認してください");
-    } else {
-      setErrorMsg(`保存失敗: ${error.message}`);
-    }
-    
-    // エラー時はローカルに保存
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
-  }
-};
+      const saveToFirestore = async (userId) => {
+        try {
+          console.log("保存開始:", userId);
+          
+          const dataToSave = {
+            groups,
+            items,
+            lastUpdated: new Date().toISOString()
+          };
+          
+          const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
+          
+          // Firestoreに保存
+          await window.fb.setDoc(docRef, dataToSave, { merge: true });
+          
+          console.log("保存成功");
+          setErrorMsg("クラウドに保存しました ✓");
+          setLastSaved(new Date().toLocaleTimeString());
+          
+        } catch (error) {
+          console.error("保存エラー詳細:", error);
+          
+          // エラーコードに応じたメッセージ
+          if (error.code === 'permission-denied') {
+            setErrorMsg("❌ 保存権限がありません。管理者に連絡してください。");
+          } else if (error.code === 'unavailable') {
+            setErrorMsg("🌐 ネットワーク接続を確認してください");
+          } else {
+            setErrorMsg(`保存失敗: ${error.message}`);
+          }
+          
+          // エラー時はローカルに保存
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
+        }
+      };
 
       // ローカルストレージにも保存
       useEffect(() => { 
@@ -333,118 +487,122 @@ const saveToFirestore = async (userId) => {
       const handleImportCSV = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (selectedGroup === "ALL" || selectedMember === "ALL") { showError("グループとメンバーを選択してから取り込んでください"); e.target.value = ""; return; }
+        if (selectedGroup === "ALL" || selectedMember === "ALL") { 
+          showError("グループとメンバーを選択してから取り込んでください"); 
+          e.target.value = ""; 
+          return; 
+        }
+        
         const reader = new FileReader();
         reader.onload = (ev) => {
           try {
-            const rows = parseCSV(ev.target.result);
-            const now = Date.now();
-            const newItems = rows.map((l, index) => {
-              if (!l || l.length < 2) return null;
-              const isShortFormat = l.length < 10;
-              return {
-                id: genId(),
-                group: isShortFormat ? selectedGroup : (l[0] || selectedGroup),
-                member: isShortFormat ? selectedMember : (l[1] || selectedMember),
-                name: isShortFormat ? l[1] : (l[2] || "名称なし"),
-                thumbnail: isShortFormat ? l[0] : (l[7] || ""),
-                otherImages: isShortFormat ? (l[2] ? l[2].split(/[\n ]+/) : []) : (l[11] ? l[11].split("|") : []),
-                yori: isShortFormat ? 0 : (parseInt(l[3])||0), 
-                chuu: isShortFormat ? 0 : (parseInt(l[4])||0), 
-                hiki: isShortFormat ? 0 : (parseInt(l[5])||0),
-                syori: isShortFormat ? 0 : (parseInt(l[12])||0),
-                schuu: isShortFormat ? 0 : (parseInt(l[13])||0),
-                shiki: isShortFormat ? 0 : (parseInt(l[14])||0),
-                memo: isShortFormat ? "" : (l[6]||""),
-                price: isShortFormat ? "" : (l[8]||"").slice(0, 6),
-                source: isShortFormat ? "入手先" : (l[9]||"入手先"),
-                isWish: isShortFormat ? false : (l[10]==="1"),
-                createdAt: now - index
-              };
+            const text = ev.target.result;
+            
+            // ファイル形式を自動判定（タブ区切りかカンマ区切りか）
+            const hasTabs = text.includes('\t');
+            const delimiter = hasTabs ? '\t' : ',';
+            
+            console.log(`CSV形式を検出: ${hasTabs ? 'タブ区切り' : 'カンマ区切り'}`);
+            
+            const rows = parseCSV(text, delimiter);
+            console.log(`読み込んだ行数: ${rows.length}`);
+            
+            // 先頭行をデバッグ出力
+            if (rows.length > 0) {
+              console.log("最初の行:", rows[0]);
+              console.log("列数:", rows[0].length);
+            }
+            
+            const newItems = rows.map((row, index) => {
+              if (hasTabs) {
+                // タブ区切り形式の場合
+                return parseTabCSVRowToItem(row, selectedGroup, selectedMember, index);
+              } else {
+                // カンマ区切り形式の場合
+                return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, index);
+              }
             }).filter(Boolean);
+            
+            console.log(`変換されたアイテム数: ${newItems.length}`);
+            if (newItems.length > 0) {
+              console.log("最初のアイテム:", newItems[0]);
+            }
+            
             setItems(p => [...newItems, ...p]);
-            showError(`${newItems.length}件取り込みました`);
-          } catch(err) { showError("CSV形式が正しくありません"); }
+            showError(`${newItems.length}件取り込みました (${hasTabs ? 'タブ区切り' : 'カンマ区切り'})`);
+          } catch(err) { 
+            console.error("CSV解析エラー:", err);
+            showError("CSV形式が正しくありません: " + err.message); 
+          }
         };
-        reader.readAsText(file);
+        reader.readAsText(file, 'UTF-8');
         e.target.value = "";
       };
 
-      const loadExternalTemplate = async () => {
-  try {
-    let allItems = [];
-    let loadedCount = 0;
-    
-    // template_part001.csv から template_part034.csv まで順番に読み込む
-    for (let i = 1; i <= 34; i++) {
-      const fileNumber = i.toString().padStart(3, '0'); // 001, 002, ...
-      const fileName = `template_part${fileNumber}.csv`;
-      
-      try {
-        const response = await fetch(`template1/${fileName}`);
-        if (!response.ok) {
-          console.log(`${fileName} が見つかりません、スキップします`);
-          continue;
+      // テンプレート読み込み関数（改善版）
+      const loadExternalTemplate = async (fileName) => {
+        try {
+          setIsLoading(true);
+          const response = await fetch(fileName);
+          if (!response.ok) {
+            throw new Error(`テンプレートファイル(${fileName})が見つかりません (ステータス: ${response.status})`);
+          }
+          
+          const csvText = await response.text();
+          
+          // ファイル形式を自動判定
+          const hasTabs = csvText.includes('\t');
+          const delimiter = hasTabs ? '\t' : ',';
+          
+          const rows = parseCSV(csvText, delimiter);
+          
+          const newItems = rows.map((row, index) => {
+            if (hasTabs) {
+              return parseTabCSVRowToItem(row, selectedGroup, selectedMember, index);
+            } else {
+              return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, index);
+            }
+          }).filter(Boolean);
+
+          setItems(p => [...newItems, ...p]);
+          showError(`${newItems.length}件のテンプレートを読み込みました (${fileName})`);
+          setActiveModal(null);
+        } catch (err) {
+          console.error("テンプレート読み込みエラー:", err);
+          showError(`読み込み失敗: ${err.message}`);
+          
+          // テンプレートファイルを再チェック
+          checkTemplateFiles();
+        } finally {
+          setIsLoading(false);
         }
-        
-        const csvText = await response.text();
-        const rows = parseCSV(csvText);
-        const now = Date.now();
-        
-        const newItems = rows.map((l, index) => {
-          if (!l || l.length < 2) return null;
-          const isShortFormat = l.length < 10;
-          return {
-            id: genId(),
-            group: isShortFormat ? selectedGroup : (l[0] || selectedGroup),
-            member: isShortFormat ? selectedMember : (l[1] || selectedMember),
-            name: isShortFormat ? l[1] : (l[2] || "名称なし"),
-            thumbnail: isShortFormat ? l[0] : (l[7] || ""),
-            otherImages: isShortFormat ? (l[2] ? l[2].split(/[\n ]+/) : []) : (l[11] ? l[11].split("|") : []),
-            yori: isShortFormat ? 0 : (parseInt(l[3])||0), 
-            chuu: isShortFormat ? 0 : (parseInt(l[4])||0), 
-            hiki: isShortFormat ? 0 : (parseInt(l[5])||0),
-            syori: isShortFormat ? 0 : (parseInt(l[12])||0),
-            schuu: isShortFormat ? 0 : (parseInt(l[13])||0),
-            shiki: isShortFormat ? 0 : (parseInt(l[14])||0),
-            memo: isShortFormat ? "" : (l[6]||""),
-            price: isShortFormat ? "" : (l[8]||"").slice(0, 9),
-            source: isShortFormat ? "入手先" : (l[9]||"入手先"),
-            isWish: isShortFormat ? false : (l[10]==="1"),
-            createdAt: now - index - (34 - i) * 1000 // ファイル番号でソート順を調整
-          };
-        }).filter(Boolean);
-        
-        allItems = [...allItems, ...newItems];
-        loadedCount++;
-        
-      } catch (err) {
-        console.log(`${fileName} の読み込みに失敗:`, err.message);
-      }
-    }
-    
-    if (allItems.length === 0) {
-      showError("テンプレートファイルが見つかりませんでした");
-      return;
-    }
-    
-    setItems(p => [...allItems, ...p]);
-    showError(`${loadedCount}個のテンプレートファイルから ${allItems.length}件を読み込みました`);
-    
-  } catch (err) {
-    showError("読み込み失敗: " + err.message);
-  }
-};
+      };
 
       // CSV出力関数
       const handleCSVExport = () => {
         const csvData = items.map(i => [
           i.group, i.member, i.name, i.yori, i.chuu, i.hiki, i.memo||"", i.thumbnail||"", i.price||"", i.source||"入手先", i.isWish?"1":"0", (i.otherImages||[]).join("|"), i.syori||0, i.schuu||0, i.shiki||0
         ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-        const blob = new Blob([csvData], {type:"text/csv"});
+        const blob = new Blob([csvData], {type:"text/csv;charset=utf-8;"});
         const a = document.createElement("a"); 
         a.href = URL.createObjectURL(blob); 
         a.download="photo_data.csv"; 
+        a.click();
+      };
+
+      // TSV出力関数（サンプル形式と同じ形式で出力）
+      const handleTSVExport = () => {
+        const tsvData = items.map(i => {
+          const thumbnail = i.thumbnail || "";
+          const name = i.name || "";
+          const otherImages = (i.otherImages || []).join("\n");
+          return `${thumbnail}\t${name}\t"${otherImages}"`;
+        }).join("\n");
+        
+        const blob = new Blob([tsvData], {type:"text/tab-separated-values;charset=utf-8;"});
+        const a = document.createElement("a"); 
+        a.href = URL.createObjectURL(blob); 
+        a.download="photo_data.tsv"; 
         a.click();
       };
 
@@ -930,7 +1088,19 @@ const saveToFirestore = async (userId) => {
                           fontSize: '12px',
                           fontWeight: 'bold'
                         }}>
-                          📤 CSV出力
+                          📤 CSV出力（カンマ区切り）
+                        </button>
+                        <button onClick={handleTSVExport} style={{
+                          padding: '10px',
+                          background: '#9c27b0',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}>
+                          📤 TSV出力（タブ区切り）
                         </button>
                         <label style={{
                           padding: '10px',
@@ -943,21 +1113,59 @@ const saveToFirestore = async (userId) => {
                           fontWeight: 'bold',
                           textAlign: 'center'
                         }}>
-                          📥 CSV取込
-                          <input type="file" accept=".csv" style={{display:'none'}} onChange={handleImportCSV} />
+                          📥 CSV/TSV取込
+                          <input type="file" accept=".csv,.tsv,.txt" style={{display:'none'}} onChange={handleImportCSV} />
                         </label>
-                        <button onClick={loadExternalTemplate} style={{
-                          padding: '10px',
-                          background: '#9c27b0',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                          fontWeight: 'bold'
-                        }}>
-                          📄 テンプレート読込
-                        </button>
+                        
+                        {/* テンプレート選択 - 利用可能なテンプレートがある場合のみ表示 */}
+                        {availableTemplates.length > 0 && (
+                          <div style={{marginTop: '10px'}}>
+                            <div style={{fontSize: '11px', color: '#666', marginBottom: '5px'}}>テンプレートから読み込み ({availableTemplates.length}件):</div>
+                            <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '5px'}}>
+                              {availableTemplates.map(fileName => (
+                                <button 
+                                  key={fileName}
+                                  onClick={() => loadExternalTemplate(fileName)}
+                                  style={{
+                                    padding: '8px',
+                                    background: '#9c27b0',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '11px',
+                                    fontWeight: 'bold',
+                                    textAlign: 'center'
+                                  }}
+                                >
+                                  {fileName.replace('.csv', '')}
+                                </button>
+                              ))}
+                            </div>
+                            <p style={{fontSize: '10px', color: '#666', marginTop: '5px', textAlign: 'center'}}>
+                              ※タブ区切りとカンマ区切りの両方に対応
+                            </p>
+                          </div>
+                        )}
+                        
+                        {/* テンプレートファイルが存在しない場合のメッセージ */}
+                        {availableTemplates.length === 0 && (
+                          <div style={{
+                            marginTop: '10px',
+                            padding: '10px',
+                            background: isDarkMode ? '#333' : '#f5f5f5',
+                            borderRadius: '8px',
+                            textAlign: 'center'
+                          }}>
+                            <p style={{fontSize: '11px', color: '#666', margin: 0}}>
+                              テンプレートファイルが見つかりません。<br/>
+                              テンプレートCSVファイルをサーバーにアップロードしてください。
+                            </p>
+                            <p style={{fontSize: '10px', color: '#888', margin: '5px 0 0 0'}}>
+                              利用可能なファイル名: template.csv, template1.csv, template2.csv, ...
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1004,7 +1212,7 @@ const saveToFirestore = async (userId) => {
                       <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>📜 規約</li>
                       <li onClick={() => window.open("https://github.com/Meowx7", "_blank")}>🐱 GitHub</li>
                       <li onClick={handleLogout} style={{color: '#ff5252', fontWeight: 'bold'}}>🚪 ログアウト</li>
-                      <li style={{color:'#888', cursor:'default', fontSize: '11px', justifyContent: 'center'}}>Version 1.4.1</li>
+                      <li style={{color:'#888', cursor:'default', fontSize: '11px', justifyContent: 'center'}}>Version 1.4.4</li>
                     </ul>
                     <button onClick={()=>setActiveModal(null)} style={{
                       width:'100%', 
