@@ -33,6 +33,56 @@
     doc, setDoc, onSnapshot, signInWithPopup, signOut, onAuthStateChanged, getDoc
   };
 </script>
+
+<style>
+  /* スマホ用の折りたたみスタイル追加 */
+  @media (max-width: 768px) {
+    .sign-counters-container {
+      position: relative;
+      margin-top: 8px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    
+    .sign-counters-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      background: #f9f9f9;
+      border: none;
+      width: 100%;
+      text-align: left;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+      color: #666;
+    }
+    
+    .sign-counters-toggle:after {
+      content: '▼';
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    
+    .sign-counters-toggle.active:after {
+      transform: rotate(180deg);
+    }
+    
+    .sign-counters-content {
+      display: none;
+      padding: 8px;
+      background: #fff;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    
+    .sign-counters-content.expanded {
+      display: flex;
+    }
+  }
+</style>
 </head>
 <body>
   <div id="root"></div>
@@ -297,6 +347,7 @@
       const [tempImages, setTempImages] = useState([]);
       const [tempMainUrl, setTempMainUrl] = useState("");
       const [selectedItemIds, setSelectedItemIds] = useState([]);
+      const [expandedSignItems, setExpandedSignItems] = useState([]); // 折りたたみ状態を管理
 
       // テンプレートファイルの存在確認を行う関数
       const checkTemplateFiles = useCallback(async () => {
@@ -482,6 +533,12 @@
       const toggleSelectItem = (id) => {
         if (!isManageMode) return;
         setSelectedItemIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+      };
+
+      const toggleSignCounters = (id) => {
+        setExpandedSignItems(prev => 
+          prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]
+        );
       };
 
       const handleImportCSV = (e) => {
@@ -826,54 +883,202 @@
 
           <div className="main-layout">
             <div className="stats-card">
-              <div className="stats-summary">
-                <div style={{textAlign:'center'}}><span style={{fontSize:10, color:'#888'}}>種類</span><br/><b>{stats.totalKinds}</b></div>
-                <div style={{textAlign:'center'}}><span style={{fontSize:10, color:'#888'}}>合計枚数</span><br/><b>{stats.totalCount}</b></div>
-              </div>
               <div className="stats-charts-grid">
-                <div className="stats-box" style={{background:'rgba(76,175,80,0.08)'}}>
-                  <span className="stats-label" style={{color:'#2e7d32'}}>収集率</span>
-                  <MiniChart percent={stats.totalSlots?Math.round((stats.collectedSlots/stats.totalSlots)*100):0} color="#4caf50" isDarkMode={isDarkMode} />
+                {/* 収集率 */}
+                <div className="stats-box">
+                  <div className="stats-label">収集率</div>
+                  <div className="progress-circle-container">
+                    <div className="progress-circle-bg"></div>
+                    <div 
+                      className="progress-circle" 
+                      style={{
+                        background: `conic-gradient(${isDarkMode ? 'var(--color-primary)' : 'var(--light-primary)'} 0% ${stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}%, transparent ${stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}% 100%)`
+                      }}
+                    ></div>
+                    <div className="progress-circle-mask">
+                      <span className="progress-percentage">{stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}%</span>
+                    </div>
+                  </div>
                   <div className="stats-fraction">{stats.collectedSlots} / {stats.totalSlots}</div>
                 </div>
-                <div className="stats-box" style={{background:'rgba(251,192,45,0.08)'}}>
-                  <span className="stats-label" style={{color:'#f57f17'}}>コンプリート率</span>
-                  <MiniChart percent={stats.totalKinds?Math.round((stats.completedKinds/stats.totalKinds)*100):0} color="#fbc02d" isDarkMode={isDarkMode} />
+                
+                {/* コンプリート率 */}
+                <div className="stats-box">
+                  <div className="stats-label">コンプリート率</div>
+                  <div className="progress-circle-container">
+                    <div className="progress-circle-bg"></div>
+                    <div 
+                      className="progress-circle" 
+                      style={{
+                        background: `conic-gradient(${isDarkMode ? 'var(--color-success)' : 'var(--light-success)'} 0% ${stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}%, transparent ${stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}% 100%)`
+                      }}
+                    ></div>
+                    <div className="progress-circle-mask">
+                      <span className="progress-percentage">{stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}%</span>
+                    </div>
+                  </div>
                   <div className="stats-fraction">{stats.completedKinds} / {stats.totalKinds}</div>
+                </div>
+              </div>
+              
+              {/* 統計サマリー（総数表示） */}
+              <div className="stats-summary">
+                <div className="stat-item">
+                  <span className="stat-value">{stats.totalKinds}</span>
+                  <span className="stat-label">総写真数</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-value">{stats.collectedSlots}</span>
+                  <span className="stat-label">収集済み</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-value">{stats.completedKinds}</span>
+                  <span className="stat-label">コンプリート</span>
                 </div>
               </div>
             </div>
 
+            {/* ===== コントロールパネル ===== */}
             <div className="control-panel">
-              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
-                <span style={{fontSize:11, fontW:'bold', color: isManageMode ? '#ff5252' : '#888'}}>{isManageMode ? '【管理モード：一括操作有効】' : 'フィルター'}</span>
-                <button style={{background:'none', border:'none', cursor:'pointer', fontSize:20}} onClick={() => setIsManageMode(!isManageMode)}>{isManageMode ? '✓' : '🛠️'}</button>
+              {/* 管理モードトグル */}
+              <div className="control-header">
+                <div>
+                  <strong>管理モード</strong>
+                  {isManageMode && <span className="manage-mode-badge">ON</span>}
+                </div>
+                <button 
+                  className="manage-toggle" 
+                  onClick={() => setIsManageMode(!isManageMode)}
+                  style={{ color: isManageMode ? '#ff5252' : '' }}
+                >
+                  ✏️
+                </button>
               </div>
+
+              {/* フィルター行 */}
               <div className="filter-row">
-                <input type="text" placeholder=" 名前検索" value={search} onChange={e=>setSearch(e.target.value)} style={{flex:2, margin:0}} />
-                <button className={`btn-item ${showOnlyWish ? 'active' : ''}`} onClick={() => setShowOnlyWish(!showOnlyWish)}>お気に入り</button>
-                <select className="sort-select" value={sortBy} onChange={e=>setSortBy(e.target.value)}>
+                <input 
+                  className="search-input" 
+                  placeholder="検索..." 
+                  value={search} 
+                  onChange={e => setSearch(e.target.value)} 
+                />
+                <button 
+                  className={`wish-toggle-btn ${showOnlyWish ? 'active' : ''}`} 
+                  onClick={() => setShowOnlyWish(!showOnlyWish)}
+                >
+                  ⭐ のみ
+                </button>
+                <select 
+                  className="sort-select" 
+                  value={sortBy} 
+                  onChange={e => setSortBy(e.target.value)}
+                >
                   <option value="new">新しい順</option>
                   <option value="old">古い順</option>
                   <option value="name">名前順</option>
-                  <option value="price_high">価格高順</option>
-                  <option value="stock_high">枚数多順</option>
-                  <option value="comp_first">コンプ順</option>
+                  <option value="price_high">価格が高い順</option>
+                  <option value="stock_high">在庫が多い順</option>
+                  <option value="comp_first">コンプリート優先</option>
                 </select>
               </div>
-              <strong>Group:</strong> {groups.map(g => (
-                <button key={g.name} className={`btn-item ${selectedGroup === g.name ? "active" : ""}`} onClick={() => { if(!isManageMode){setSelectedGroup(g.name); setSelectedMember("ALL"); setSelectedItemIds([]);} }}>
-                  {g.name}{isManageMode && <span className="btn-delete-small" onClick={(e)=>{ e.stopPropagation(); setTargetName(g.name); setActiveModal('delete_group'); }}>✕</span>}
-                </button>
-              ))}
-              <button className="btn-item" onClick={()=>setActiveModal('add_group')}>＋</button>
-              <br/><div style={{marginTop:8}}><strong>Member:</strong> 
-              {(selectedGroup !== "ALL" ? (groups.find(g=>g.name===selectedGroup)?.members || []) : []).map(m => (
-                <button key={m} className={`btn-item ${selectedMember === m ? "active" : ""}`} onClick={() => { if(!isManageMode) {setSelectedMember(m); setSelectedItemIds([]);} }}>
-                  {m}{isManageMode && <span className="btn-delete-small" onClick={(e)=>{ e.stopPropagation(); setTargetName(m); setActiveModal('delete_member'); }}>✕</span>}
-                </button>
-              ))}
-              <button className="btn-item" onClick={()=>{ if(selectedGroup === "ALL") return showError("先にグループを選択"); setActiveModal('add_member'); }}>＋</button>
+
+              {/* グループ選択 */}
+              <div className="group-section">
+                <div className="section-title">
+                  <strong>グループ</strong>
+                  <button 
+                    className="add-btn" 
+                    onClick={() => setActiveModal('add_group')}
+                  >
+                    +
+                  </button>
+                </div>
+                <ul className="button-list">
+                  <li>
+                    <button 
+                      className={`btn-item ${selectedGroup === 'ALL' ? 'active' : ''}`} 
+                      onClick={() => {
+                        setSelectedGroup('ALL');
+                        setSelectedMember('ALL');
+                      }}
+                    >
+                      ALL
+                    </button>
+                  </li>
+                  {groups.map(g => (
+                    <li key={g.name}>
+                      <button 
+                        className={`btn-item ${selectedGroup === g.name ? 'active' : ''}`} 
+                        onClick={() => {
+                          setSelectedGroup(g.name);
+                          setSelectedMember(g.members.length > 0 ? g.members[0] : 'ALL');
+                        }}
+                      >
+                        {g.name}
+                        {isManageMode && (
+                          <button 
+                            className="btn-delete-small" 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              setTargetName(g.name); 
+                              setActiveModal('delete_group'); 
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* メンバー選択 */}
+              <div className="member-section">
+                <div className="section-title">
+                  <strong>メンバー</strong>
+                  {selectedGroup !== 'ALL' && selectedGroup && (
+                    <button 
+                      className="add-btn" 
+                      onClick={() => setActiveModal('add_member')}
+                    >
+                      +
+                    </button>
+                  )}
+                </div>
+                <ul className="button-list">
+                  <li>
+                    <button 
+                      className={`btn-item ${selectedMember === 'ALL' ? 'active' : ''}`} 
+                      onClick={() => setSelectedMember('ALL')}
+                    >
+                      ALL
+                    </button>
+                  </li>
+                  {selectedGroup !== 'ALL' && groups.find(g => g.name === selectedGroup)?.members.map(m => (
+                    <li key={m}>
+                      <button 
+                        className={`btn-item ${selectedMember === m ? 'active' : ''}`} 
+                        onClick={() => setSelectedMember(m)}
+                      >
+                        {m}
+                        {isManageMode && (
+                          <button 
+                            className="btn-delete-small" 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              setTargetName(m); 
+                              setActiveModal('delete_member'); 
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
@@ -884,6 +1089,8 @@
             {sortedItems.map(i => {
               const comp = (i.yori>0||i.syori>0) && (i.chuu>0||i.schuu>0) && (i.hiki>0||i.shiki>0);
               const isSelected = selectedItemIds.includes(i.id);
+              const isSignExpanded = expandedSignItems.includes(i.id);
+              
               return (
                 <div key={i.id} className={`photo-card ${comp ? 'is-complete' : ''} ${i.isWish ? 'is-wish' : ''}`} style={{background: (isManageMode && isSelected) ? 'rgba(255, 82, 82, 0.1)' : ''}}>
                   <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:10}}>
@@ -920,7 +1127,8 @@
                       </div>
                       <button onClick={()=>{ setTargetName(i.name); setTargetId(i.id); setActiveModal('delete_photo'); }} style={{color:'#999', border:'none', background:'none', cursor:'pointer'}}>✕</button>
                     </div>
-                    <div style={{display:'flex', gap:4, flexWrap:'wrap'}}>
+                    {/* 通常の寄り・中・引き（常に表示） */}
+                    <div style={{display:'flex', gap:4, flexWrap:'wrap', marginBottom: 8}}>
                       {[ {k:'yori', l:'寄'}, {k:'chuu', l:'中'}, {k:'hiki', l:'引'} ].map(o => (
                         <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-stock' : ''}`}>
                           <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
@@ -930,17 +1138,28 @@
                         </div>
                       ))}
                     </div>
-                    <div style={{display:'flex', gap:4, flexWrap:'wrap'}}>
-                      {[ {k:'syori', l:'サイン寄'}, {k:'schuu', l:'サイン中'}, {k:'shiki', l:'サイン引'} ].map(o => (
-                        <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-sign' : ''}`}>
-                          <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
-                          <button className="btn-qty" onClick={() => updateItem(i.id, o.k, Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
-                          <span className="qty-val">{i[o.k]||0}</span>
-                          <button className="btn-qty" onClick={() => updateItem(i.id, o.k, (parseInt(i[o.k])||0)+1)}>+</button>
-                        </div>
-                      ))}
+                    
+                    {/* サイン付きカウンター（スマホで折りたたみ） */}
+                    <div className="sign-counters-container">
+                      <button 
+                        className={`sign-counters-toggle ${isSignExpanded ? 'active' : ''}`}
+                        onClick={() => toggleSignCounters(i.id)}
+                      >
+                        サイン付きカウンター
+                      </button>
+                      <div className={`sign-counters-content ${isSignExpanded ? 'expanded' : ''}`}>
+                        {[ {k:'syori', l:'サイン寄'}, {k:'schuu', l:'サイン中'}, {k:'shiki', l:'サイン引'} ].map(o => (
+                          <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-sign' : ''}`}>
+                            <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
+                            <button className="btn-qty" onClick={() => updateItem(i.id, o.k, Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
+                            <span className="qty-val">{i[o.k]||0}</span>
+                            <button className="btn-qty" onClick={() => updateItem(i.id, o.k, (parseInt(i[o.k])||0)+1)}>+</button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="row-inputs" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                    
+                    <div className="row-inputs" style={{ flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
                       <select 
                         className="source-select" 
                         value={i.source || "入手先"} 
@@ -959,7 +1178,7 @@
                       <div className="price-wrapper">
                         <input className="details-input" style={{width:'100%'}} placeholder="価格" 
                           value={formatWithComma(i.price)} 
-                          onChange={e => updateItem(i.id, 'price', e.target.value.replace(/\D/g,'').slice(0, 9))} />
+                          onChange={e => updateItem(i.id, 'price', e.target.value.replace(/\D/g,'').slice(0, 7))} />
                         <span className="currency-unit">円</span>
                       </div>
                     </div>
@@ -1212,7 +1431,7 @@
                       <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>📜 規約</li>
                       <li onClick={() => window.open("https://github.com/Meowx7", "_blank")}>🐱 GitHub</li>
                       <li onClick={handleLogout} style={{color: '#ff5252', fontWeight: 'bold'}}>🚪 ログアウト</li>
-                      <li style={{color:'#888', cursor:'default', fontSize: '11px', justifyContent: 'center'}}>Version 1.4.4</li>
+                      <li style={{color:'#888', cursor:'default', fontSize: '11px', justifyContent: 'center'}}>Version 1.4.5</li>
                     </ul>
                     <button onClick={()=>setActiveModal(null)} style={{
                       width:'100%', 
