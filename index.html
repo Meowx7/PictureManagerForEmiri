@@ -34,55 +34,6 @@
   };
 </script>
 
-<style>
-  /* スマホ用の折りたたみスタイル追加 */
-  @media (max-width: 768px) {
-    .sign-counters-container {
-      position: relative;
-      margin-top: 8px;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    
-    .sign-counters-toggle {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 6px 10px;
-      background: #f9f9f9;
-      border: none;
-      width: 100%;
-      text-align: left;
-      font-size: 11px;
-      font-weight: bold;
-      cursor: pointer;
-      color: #666;
-    }
-    
-    .sign-counters-toggle:after {
-      content: '▼';
-      font-size: 10px;
-      transition: transform 0.2s;
-    }
-    
-    .sign-counters-toggle.active:after {
-      transform: rotate(180deg);
-    }
-    
-    .sign-counters-content {
-      display: none;
-      padding: 8px;
-      background: #fff;
-      flex-wrap: wrap;
-      gap: 4px;
-    }
-    
-    .sign-counters-content.expanded {
-      display: flex;
-    }
-  }
-</style>
 </head>
 <body>
   <div id="root"></div>
@@ -349,6 +300,7 @@
       const [selectedItemIds, setSelectedItemIds] = useState([]);
       const [expandedSignItems, setExpandedSignItems] = useState([]); // 折りたたみ状態を管理
 
+
       // テンプレートファイルの存在確認を行う関数
       const checkTemplateFiles = useCallback(async () => {
         const existingTemplates = [];
@@ -478,7 +430,7 @@
         
         const timer = setTimeout(() => {
           saveToFirestore(user.uid);
-        }, 2000); // 2秒間隔で自動保存
+        }, 1000); // 1秒間隔で自動保存
         
         return () => clearTimeout(timer);
       }, [groups, items, user]);
@@ -524,7 +476,7 @@
         await loadFromFirestore(user.uid);
       };
 
-      const showError = (msg) => { setErrorMsg(msg); setTimeout(() => setErrorMsg(""), 3000); };
+      const showError = (msg) => { setErrorMsg(msg); setTimeout(() => setErrorMsg(""), 1000); };
 
       const updateItem = useCallback((id, key, val) => {
         setItems(p => p.map(i => i.id === id ? { ...i, [key]: val } : i));
@@ -801,7 +753,7 @@
             </div>
           )}
           
-          <div className="top-bar">
+          <div className={"top-bar"}>
             <div style={{display:'flex', alignItems:'center', gap:10}}>
               <h3 style={{margin: 0, fontSize: '16px'}}>生写真管理For=Love</h3>
               {lastSaved && (
@@ -986,7 +938,7 @@
               {/* グループ選択 */}
               <div className="group-section">
                 <div className="section-title">
-                  <strong>グループ</strong>
+                  <strong>グループ選択</strong>
                   <button 
                     className="add-btn" 
                     onClick={() => setActiveModal('add_group')}
@@ -1037,7 +989,7 @@
               {/* メンバー選択 */}
               <div className="member-section">
                 <div className="section-title">
-                  <strong>メンバー</strong>
+                  <strong>メンバー選択</strong>
                   {selectedGroup !== 'ALL' && selectedGroup && (
                     <button 
                       className="add-btn" 
@@ -1458,7 +1410,7 @@
                 )}
                 {activeModal === 'add_group' && (
                   <div>
-                    <h3>グループ</h3><input type="text" autoFocus onKeyDown={e=>{
+                    <h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{
                       if(e.key==='Enter'){
                         const val = e.target.value.trim();
                         if(!val) return showError("グループ名を入力してください");
