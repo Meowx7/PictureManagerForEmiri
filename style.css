@@ -77,7 +77,6 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-size: var(--font-md);
   line-height: 1.5;
-  /* ★ 背景色を元に戻す ★ */
   background-color: var(--light-bg);
   color: var(--light-text);
   transition: background-color 0.25s ease, color 0.25s ease;
@@ -86,9 +85,6 @@ body {
   overflow-x: hidden;
   padding-bottom: 100px;
   min-height: 100vh;
-  /* ★ プルダウンリフレッシュ時の白い領域を防ぐ ★ */
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
 }
 
 body.dark-mode {
@@ -105,33 +101,14 @@ body.dark-mode {
   background: linear-gradient(135deg, var(--light-primary) 0%, var(--light-primary-dark) 100%);
   color: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  
-  /* ★ ヘッダーの上に余分なスペースを追加 ★ */
   position: relative;
   z-index: 1000;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  
-  /* ★ 疑似要素でヘッダーの上に同じ色の領域を作成 ★ */
-  &::before {
-    content: '';
-    position: absolute;
-    top: -100px; /* 十分な大きさ */
-    left: 0;
-    right: 0;
-    height: 100px;
-    background: inherit; /* ヘッダーと同じ背景を継承 */
-    z-index: -1;
-  }
 }
 
 .dark-mode .top-bar {
   background: linear-gradient(135deg, #0d47a1 0%, #1565c0 100%);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  
-  /* ★ ダークモードでも疑似要素を適用 ★ */
-  &::before {
-    background: inherit;
-  }
 }
 
 /* ===== メインコンテンツ ===== */
@@ -142,9 +119,64 @@ body.dark-mode {
   background-color: transparent;
 }
 
+/* ===== 並び替えヘルパー ===== */
+.sort-helper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  background-color: var(--light-primary-light);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
+  border: 1px solid var(--light-primary);
+  animation: fadeIn 0.5s ease;
+}
 
+.dark-mode .sort-helper {
+  background-color: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
 
-/* ===== 統計カード - 完全再設計 ===== */
+.sort-hint {
+  font-size: var(--font-sm);
+  color: var(--light-primary);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dark-mode .sort-hint {
+  color: var(--color-primary);
+}
+
+.reset-order-btn {
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--light-warning);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.reset-order-btn:hover {
+  background-color: #f57c00;
+  transform: translateY(-1px);
+}
+
+.dark-mode .reset-order-btn {
+  background-color: var(--color-warning);
+}
+
+.dark-mode .reset-order-btn:hover {
+  background-color: #ff9800;
+}
+
+/* ===== 統計カード ===== */
 .stats-card {
   background-color: white;
   border-radius: var(--radius-lg);
@@ -160,7 +192,6 @@ body.dark-mode {
   box-shadow: 0 3px 10px var(--color-shadow);
 }
 
-/* グラフグリッドレイアウト */
 .stats-charts-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -168,7 +199,6 @@ body.dark-mode {
   margin-bottom: var(--space-lg);
 }
 
-/* 個々の統計ボックス */
 .stats-box {
   display: flex;
   flex-direction: column;
@@ -187,7 +217,6 @@ body.dark-mode {
   border-color: var(--color-border);
 }
 
-/* ラベル（一番上） */
 .stats-label {
   font-size: var(--font-sm);
   font-weight: 700;
@@ -204,7 +233,6 @@ body.dark-mode {
   color: var(--color-text);
 }
 
-/* 円グラフコンテナ */
 .progress-circle-container {
   position: relative;
   width: 100px;
@@ -213,7 +241,6 @@ body.dark-mode {
   order: 2;
 }
 
-/* 円グラフ背景 */
 .progress-circle-bg {
   width: 100%;
   height: 100%;
@@ -228,7 +255,6 @@ body.dark-mode {
   background-color: var(--color-border);
 }
 
-/* 円グラフ進捗（conic-gradientを使用） */
 .progress-circle {
   width: 100%;
   height: 100%;
@@ -244,7 +270,6 @@ body.dark-mode {
   background: conic-gradient(var(--color-primary) 0% 0%, transparent 0% 100%);
 }
 
-/* 円グラフ中央のマスク */
 .progress-circle-mask {
   width: 80px;
   height: 80px;
@@ -262,7 +287,6 @@ body.dark-mode {
   background-color: var(--color-card);
 }
 
-/* 円グラフ中央のパーセンテージ */
 .progress-percentage {
   font-size: var(--font-xl);
   font-weight: 800;
@@ -274,7 +298,6 @@ body.dark-mode {
   color: var(--color-text);
 }
 
-/* 分数（一番下） */
 .stats-fraction {
   font-size: var(--font-md);
   font-weight: 600;
@@ -293,7 +316,6 @@ body.dark-mode {
   border-color: var(--color-border);
 }
 
-/* 統計サマリー（総数表示） */
 .stats-summary {
   display: flex;
   justify-content: center;
@@ -397,7 +419,6 @@ body.dark-mode {
   background-color: var(--color-border);
 }
 
-/* フィルター行 */
 .filter-row {
   display: flex;
   gap: var(--space-sm);
@@ -482,7 +503,6 @@ body.dark-mode {
   color: var(--color-text);
 }
 
-/* グループ & メンバーセクション */
 .group-section,
 .member-section {
   margin-bottom: var(--space-md);
@@ -505,7 +525,6 @@ body.dark-mode {
   color: var(--color-text);
 }
 
-/* ボタンリスト */
 .button-list {
   display: flex;
   flex-wrap: wrap;
@@ -516,7 +535,6 @@ body.dark-mode {
   list-style: none;
 }
 
-/* グループ・メンバーボタン */
 .btn-item {
   position: relative;
   padding: var(--space-sm) var(--space-md);
@@ -567,7 +585,6 @@ body.dark-mode {
   border-color: var(--color-primary);
 }
 
-/* 追加ボタン */
 .add-btn {
   padding: var(--space-sm) var(--space-md);
   background-color: var(--light-primary);
@@ -603,7 +620,6 @@ body.dark-mode {
   background-color: var(--color-primary-dark);
 }
 
-/* 削除ボタン */
 .btn-delete-small {
   background-color: var(--light-danger);
   color: white;
@@ -667,6 +683,7 @@ body.dark-mode {
   border: 1px solid var(--light-border);
   transition: all 0.25s ease;
   gap: var(--space-md);
+  position: relative;
 }
 
 .dark-mode .photo-card {
@@ -703,6 +720,71 @@ body.dark-mode {
 .dark-mode .photo-card.is-complete {
   border-left-color: var(--color-success);
   background-color: var(--color-success-light);
+}
+
+/* ドラッグ＆ドロップ用スタイル */
+.photo-card.is-dragging {
+  opacity: 0.5 !important;
+  box-shadow: 0 0 20px rgba(33, 150, 243, 0.5);
+  transform: rotate(3deg);
+  z-index: 1000;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.photo-card.drag-over {
+  border: 2px dashed var(--light-primary) !important;
+  background-color: var(--light-primary-light) !important;
+  position: relative;
+}
+
+.dark-mode .photo-card.drag-over {
+  border-color: var(--color-primary) !important;
+  background-color: var(--color-primary-light) !important;
+}
+
+/* ドラッグハンドル */
+.drag-handle {
+  position: absolute;
+  left: -25px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--light-text-secondary);
+  font-size: 16px;
+  cursor: move;
+  padding: 8px;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+  user-select: none;
+}
+
+.dark-mode .drag-handle {
+  color: var(--color-text-secondary);
+}
+
+.photo-card:hover .drag-handle {
+  opacity: 1;
+}
+
+.drag-handle:hover {
+  color: var(--light-primary);
+}
+
+.dark-mode .drag-handle:hover {
+  color: var(--color-primary);
+}
+
+/* 管理モード時のカーソル */
+.photo-card[draggable="true"] {
+  cursor: move !important;
+}
+
+.photo-card[draggable="true"]:hover {
+  box-shadow: 0 4px 12px var(--light-shadow);
+}
+
+.dark-mode .photo-card[draggable="true"]:hover {
+  box-shadow: 0 4px 12px var(--color-shadow);
 }
 
 /* 画像コンテナ */
@@ -775,7 +857,6 @@ body.dark-mode {
   min-width: 0;
 }
 
-/* ヘッダー部分 */
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -791,7 +872,6 @@ body.dark-mode {
   min-width: 0;
 }
 
-/* お気に入りボタン */
 .wish-toggle {
   background: none;
   border: none;
@@ -809,7 +889,6 @@ body.dark-mode {
   filter: drop-shadow(0 0 2px rgba(255, 215, 0, 0.3));
 }
 
-/* 名前表示 */
 .name-display {
   font-size: var(--font-md);
   font-weight: 600;
@@ -858,7 +937,6 @@ body.dark-mode {
   box-shadow: 0 0 0 2px var(--color-primary-light);
 }
 
-/* 削除ボタン */
 .delete-btn {
   background: none;
   border: none;
@@ -998,7 +1076,6 @@ body.dark-mode {
   flex-wrap: wrap;
 }
 
-/* 入手先セレクト */
 .source-select {
   padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--light-border);
@@ -1030,7 +1107,6 @@ body.dark-mode {
   box-shadow: 0 0 0 2px var(--color-primary-light);
 }
 
-/* メモ入力 */
 .memo-input {
   flex: 1;
   min-width: 150px;
@@ -1061,7 +1137,6 @@ body.dark-mode {
   box-shadow: 0 0 0 2px var(--color-primary-light);
 }
 
-/* 価格入力 */
 .price-wrapper {
   position: relative;
   flex: 0 0 auto;
@@ -1256,6 +1331,15 @@ body.dark-mode {
   }
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .modal-header {
   margin-bottom: var(--space-lg);
 }
@@ -1416,6 +1500,14 @@ body.dark-mode {
   color: var(--color-danger);
 }
 
+.settings-list li.warning {
+  color: var(--light-warning);
+}
+
+.dark-mode .settings-list li.warning {
+  color: var(--color-warning);
+}
+
 .settings-list li.disabled {
   cursor: default;
   color: var(--light-text-secondary);
@@ -1516,7 +1608,7 @@ body.dark-mode {
   margin-bottom: var(--space-xs);
 }
 
-/* ===== スマホ用折りたたみスタイル ===== */
+/* ===== サイン付きカウンター折りたたみ ===== */
 .sign-counters-container {
   margin-top: var(--space-sm);
   border: 1px solid var(--light-border);
@@ -1591,12 +1683,41 @@ body.dark-mode {
   animation: fadeIn 0.3s ease;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* ===== ローディングオーバーレイ ===== */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+  backdrop-filter: blur(4px);
 }
 
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: var(--light-primary);
+  animation: spin 1s ease-in-out infinite;
+}
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  color: white;
+  margin-top: var(--space-md);
+  font-size: var(--font-md);
+  font-weight: 500;
+}
 
 /* ===== スクロールバーカスタマイズ ===== */
 ::-webkit-scrollbar {
@@ -1627,18 +1748,1059 @@ body.dark-mode {
 }
 
 .dark-mode ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-text-secondary);
+  background-color: var(--color-text-secondary); 
 }
 
-/* iOS Safari用の追加対策 */
-@supports (-webkit-touch-callout: none) {
-  body {
-    /* iOSデバイスで背景色がスクロール時に透けないようにする */
-    background-color: var(--light-bg);
-    background-attachment: fixed;
+/* ===== スクロールインジケーター ===== */
+.drag-scroll-indicator {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(33, 150, 243, 0.95);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-size: 14px;
+  font-weight: bold;
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  animation: scrollIndicatorPulse 1.5s infinite;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.drag-scroll-indicator.scroll-up {
+  top: 20px;
+}
+
+.drag-scroll-indicator.scroll-down {
+  bottom: 20px;
+}
+
+.drag-scroll-indicator::before {
+  content: '';
+  font-size: 18px;
+  animation: bounce 0.8s infinite;
+}
+
+.drag-scroll-indicator.scroll-up::before {
+  content: '↑';
+}
+
+.drag-scroll-indicator.scroll-down::before {
+  content: '↓';
+}
+
+@keyframes scrollIndicatorPulse {
+  0%, 100% { 
+    transform: translateX(-50%) scale(1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+  50% { 
+    transform: translateX(-50%) scale(1.05);
+    box-shadow: 0 6px 25px rgba(33, 150, 243, 0.4);
+  }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+/* ドラッグ中の改善スタイル */
+.photo-card.is-dragging {
+  opacity: 0.5 !important;
+  box-shadow: 0 0 25px rgba(33, 150, 243, 0.6);
+  transform: rotate(2deg) scale(1.02);
+  z-index: 1000;
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.photo-card.is-dragging::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  border: 2px dashed var(--light-primary);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  animation: pulseBorder 2s infinite;
+}
+
+.dark-mode .photo-card.is-dragging::after {
+  border-color: var(--color-primary);
+}
+
+@keyframes pulseBorder {
+  0%, 100% { 
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
+.photo-card.drag-over {
+  border: 2px solid var(--light-primary) !important;
+  background-color: var(--light-primary-light) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(33, 150, 243, 0.2);
+  transition: all 0.2s ease;
+}
+
+.dark-mode .photo-card.drag-over {
+  border-color: var(--color-primary) !important;
+  background-color: var(--color-primary-light) !important;
+}
+
+.photo-card.drag-over::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  background: linear-gradient(45deg, 
+    var(--light-primary) 0%, 
+    transparent 30%, 
+    transparent 70%, 
+    var(--light-primary) 100%);
+  animation: rotateBorder 3s linear infinite;
+  pointer-events: none;
+}
+
+.dark-mode .photo-card.drag-over::before {
+  background: linear-gradient(45deg, 
+    var(--color-primary) 0%, 
+    transparent 30%, 
+    transparent 70%, 
+    var(--color-primary) 100%);
+}
+
+@keyframes rotateBorder {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ドラッグハンドルの改善 */
+.drag-handle {
+  position: absolute;
+  left: -30px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--light-text-secondary);
+  font-size: 18px;
+  cursor: move;
+  padding: 10px;
+  opacity: 0.6;
+  transition: all 0.3s ease;
+  z-index: 10;
+  user-select: none;
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.9) 0%, 
+    rgba(255, 255, 255, 0.7) 100%);
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--light-border);
+}
+
+.dark-mode .drag-handle {
+  color: var(--color-text-secondary);
+  background: linear-gradient(135deg, 
+    rgba(30, 30, 30, 0.9) 0%, 
+    rgba(30, 30, 30, 0.7) 100%);
+  border-color: var(--color-border);
+}
+
+.photo-card:hover .drag-handle {
+  opacity: 1;
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.drag-handle:hover {
+  color: var(--light-primary);
+  background: linear-gradient(135deg, 
+    var(--light-primary-light) 0%, 
+    rgba(255, 255, 255, 0.9) 100%);
+  border-color: var(--light-primary);
+}
+
+.dark-mode .drag-handle:hover {
+  color: var(--color-primary);
+  background: linear-gradient(135deg, 
+    var(--color-primary-light) 0%, 
+    rgba(30, 30, 30, 0.9) 100%);
+  border-color: var(--color-primary);
+}
+
+/* ドラッグ中のカーソル */
+.photo-card[draggable="true"] {
+  cursor: grab !important;
+}
+
+.photo-card[draggable="true"]:active {
+  cursor: grabbing !important;
+}
+
+/* スクロール可能なボディ */
+.drag-active body {
+  overflow-y: scroll !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+/* 管理モード時の選択状態 */
+.photo-card[style*="background: rgba(255, 82, 82, 0.1)"] {
+  border-left: 4px solid #ff5252 !important;
+}
+
+/* 並び替えヘルパーの改善 */
+.sort-helper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  background: linear-gradient(135deg, 
+    var(--light-primary-light) 0%, 
+    rgba(255, 255, 255, 0.9) 100%);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
+  border: 2px solid var(--light-primary);
+  animation: fadeInSlide 0.5s ease;
+}
+
+.dark-mode .sort-helper {
+  background: linear-gradient(135deg, 
+    var(--color-primary-light) 0%, 
+    rgba(30, 30, 30, 0.9) 100%);
+  border-color: var(--color-primary);
+}
+
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sort-hint {
+  font-size: var(--font-sm);
+  color: var(--light-primary);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dark-mode .sort-hint {
+  color: var(--color-primary);
+}
+
+.reset-order-btn {
+  padding: var(--space-sm) var(--space-md);
+  background: linear-gradient(135deg, 
+    var(--light-warning) 0%, 
+    #ff9800 100%);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgba(255, 152, 0, 0.3);
+}
+
+.reset-order-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(255, 152, 0, 0.4);
+}
+
+.dark-mode .reset-order-btn {
+  background: linear-gradient(135deg, 
+    var(--color-warning) 0%, 
+    #ffb74d 100%);
+}
+
+.dark-mode .reset-order-btn:hover {
+  box-shadow: 0 5px 15px rgba(255, 183, 77, 0.4);
+}
+
+/* ===== 挿入機能のスタイル ===== */
+
+/* 挿入ガイドライン */
+.drag-insert-guide {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    var(--light-primary) 20%, 
+    var(--light-primary) 80%, 
+    transparent 100%);
+  z-index: 9999;
+  pointer-events: none;
+  animation: insertGuidePulse 1.5s infinite;
+  box-shadow: 0 0 10px var(--light-primary);
+}
+
+.dark-mode .drag-insert-guide {
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    var(--color-primary) 20%, 
+    var(--color-primary) 80%, 
+    transparent 100%);
+  box-shadow: 0 0 10px var(--color-primary);
+}
+
+@keyframes insertGuidePulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* ドロップ位置の視覚的フィードバック */
+.photo-card.drop-before::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    var(--light-primary) 50%, 
+    transparent 100%);
+  border-radius: 2px;
+  z-index: 5;
+  animation: dropGuidePulse 1s infinite;
+}
+
+.photo-card.drop-after::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    var(--light-primary) 50%, 
+    transparent 100%);
+  border-radius: 2px;
+  z-index: 5;
+  animation: dropGuidePulse 1s infinite;
+}
+
+.dark-mode .photo-card.drop-before::before,
+.dark-mode .photo-card.drop-after::after {
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    var(--color-primary) 50%, 
+    transparent 100%);
+}
+
+@keyframes dropGuidePulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* スクロールインジケーター */
+.scroll-indicator {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(33, 150, 243, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+  z-index: 9998;
+  pointer-events: none;
+  animation: scrollIndicatorPulse 1.5s infinite;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3);
+}
+
+.scroll-indicator.scroll-up {
+  top: 10px;
+}
+
+.scroll-indicator.scroll-down {
+  bottom: 10px;
+}
+
+.scroll-indicator::before {
+  font-size: 14px;
+}
+
+.scroll-indicator.scroll-up::before {
+  content: '↑';
+  animation: bounceUp 0.8s infinite;
+}
+
+.scroll-indicator.scroll-down::before {
+  content: '↓';
+  animation: bounceDown 0.8s infinite;
+}
+
+@keyframes scrollIndicatorPulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+@keyframes bounceUp {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes bounceDown {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3px); }
+}
+
+/* ドラッグヒント */
+.drag-hint {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 9997;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  animation: hintSlideIn 0.3s ease;
+  text-align: center;
+  max-width: 90%;
+}
+
+@keyframes hintSlideIn {
+  from { 
+    opacity: 0; 
+    transform: translateX(-50%) translateY(-10px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateX(-50%) translateY(0); 
+  }
+}
+
+/* ドラッグ中のスタイル改善 */
+.photo-card.is-dragging {
+  opacity: 0.4 !important;
+  box-shadow: 0 0 25px rgba(33, 150, 243, 0.6);
+  transform: scale(1.03);
+  z-index: 1000;
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  animation: dragFloat 2s ease-in-out infinite;
+}
+
+@keyframes dragFloat {
+  0%, 100% { transform: scale(1.03) translateY(0); }
+  50% { transform: scale(1.03) translateY(-2px); }
+}
+
+.photo-card.is-dragging::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 2px dashed var(--light-primary);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  animation: dragBorderPulse 2s infinite;
+}
+
+.dark-mode .photo-card.is-dragging::after {
+  border-color: var(--color-primary);
+}
+
+@keyframes dragBorderPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+/* ドラッグオーバー時のスタイル */
+.photo-card.drag-over {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.photo-card.drag-over:not(.is-dragging) {
+  animation: dragOverPulse 1.5s infinite;
+}
+
+@keyframes dragOverPulse {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+/* ドラッグハンドルの改善 */
+.drag-handle {
+  position: absolute;
+  left: -32px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--light-text-secondary);
+  font-size: 18px;
+  cursor: move;
+  padding: 10px;
+  opacity: 0.6;
+  transition: all 0.3s ease;
+  z-index: 10;
+  user-select: none;
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.95) 0%, 
+    rgba(255, 255, 255, 0.8) 100%);
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--light-border);
+}
+
+.dark-mode .drag-handle {
+  color: var(--color-text-secondary);
+  background: linear-gradient(135deg, 
+    rgba(30, 30, 30, 0.95) 0%, 
+    rgba(30, 30, 30, 0.8) 100%);
+  border-color: var(--color-border);
+}
+
+.photo-card:hover .drag-handle {
+  opacity: 1;
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.drag-handle:hover {
+  color: var(--light-primary);
+  background: linear-gradient(135deg, 
+    var(--light-primary-light) 0%, 
+    rgba(255, 255, 255, 0.95) 100%);
+  border-color: var(--light-primary);
+}
+
+.dark-mode .drag-handle:hover {
+  color: var(--color-primary);
+  background: linear-gradient(135deg, 
+    var(--color-primary-light) 0%, 
+    rgba(30, 30, 30, 0.95) 100%);
+  border-color: var(--color-primary);
+}
+
+/* 並び替えヘルパーの改善 */
+.sort-helper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  background: linear-gradient(135deg, 
+    var(--light-primary-light) 0%, 
+    rgba(255, 255, 255, 0.95) 100%);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
+  border: 2px solid var(--light-primary);
+  animation: helperSlideIn 0.5s ease;
+}
+
+.dark-mode .sort-helper {
+  background: linear-gradient(135deg, 
+    var(--color-primary-light) 0%, 
+    rgba(30, 30, 30, 0.95) 100%);
+  border-color: var(--color-primary);
+}
+
+@keyframes helperSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sort-hint {
+  font-size: var(--font-sm);
+  color: var(--light-primary);
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dark-mode .sort-hint {
+  color: var(--color-primary);
+}
+
+.sort-hint small {
+  font-size: var(--font-xs);
+  color: var(--light-text-secondary);
+  font-weight: 500;
+}
+
+.dark-mode .sort-hint small {
+  color: var(--color-text-secondary);
+}
+
+.reset-order-btn {
+  padding: var(--space-sm) var(--space-md);
+  background: linear-gradient(135deg, 
+    var(--light-warning) 0%, 
+    #ff9800 100%);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgba(255, 152, 0, 0.3);
+}
+
+.reset-order-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(255, 152, 0, 0.4);
+}
+
+.dark-mode .reset-order-btn {
+  background: linear-gradient(135deg, 
+    var(--color-warning) 0%, 
+    #ffb74d 100%);
+}
+
+/* カーソルスタイル */
+.photo-card[draggable="true"] {
+  cursor: grab;
+}
+
+.photo-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+/* ===== 高速スクロールスタイル ===== */
+
+/* スピードコントロール */
+.speed-control {
+  animation: slideInFromRight 0.3s ease;
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 超高速スクロールインジケーター */
+.scroll-indicator.turbo {
+  background: linear-gradient(135deg, #ff5722 0%, #ff9800 100%);
+  font-size: 14px;
+  padding: 10px 20px;
+  animation: turboPulse 0.5s infinite alternate;
+}
+
+@keyframes turboPulse {
+  0% {
+    box-shadow: 0 0 10px rgba(255, 87, 34, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 25px rgba(255, 87, 34, 0.8);
+  }
+}
+
+/* スムーズスクロールのためのスタイル */
+body.dragging-active {
+  overflow-y: auto !important;
+  scroll-behavior: auto !important;
+  -webkit-overflow-scrolling: auto !important;
+}
+
+/* 高速スクロール時の視覚的フィードバック */
+.high-speed-scroll-active .drag-insert-guide {
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    #ff5722 20%, 
+    #ff5722 80%, 
+    transparent 100%);
+  height: 3px;
+  animation: turboGuide 0.3s infinite alternate;
+}
+
+@keyframes turboGuide {
+  0% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* マウス位置に応じたスクロール速度インジケーター */
+.speed-indicator {
+  position: fixed;
+  bottom: 60px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 15px;
+  font-size: 11px;
+  font-weight: bold;
+  z-index: 9995;
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: fadeIn 0.2s ease;
+}
+
+.speed-indicator::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4caf50;
+  animation: speedPulse 1s infinite;
+}
+
+.speed-indicator.turbo::before {
+  background: #ff5722;
+  animation: speedPulse 0.3s infinite;
+}
+
+@keyframes speedPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+}
+
+/* スクロールゾーンの視覚的表示（デバッグ用） */
+.scroll-zone-indicator {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  background: linear-gradient(to bottom, 
+    rgba(255, 87, 34, 0.2) 0%, 
+    transparent 100%);
+  pointer-events: none;
+  z-index: 9994;
+  display: none; /* 通常は非表示 */
+}
+
+.scroll-zone-indicator.bottom {
+  top: auto;
+  bottom: 0;
+  background: linear-gradient(to top, 
+    rgba(255, 87, 34, 0.2) 0%, 
+    transparent 100%);
+}
+
+/* ドラッグ中の高速化ヒント */
+.turbo-hint {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #ff5722 0%, #ff9800 100%);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+  z-index: 9996;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: bounceIn 0.3s ease;
+  box-shadow: 0 4px 15px rgba(255, 87, 34, 0.3);
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px) scale(0.9);
+  }
+  80% {
+    transform: translateX(-50%) translateY(5px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+/* スクロール速度ゲージ */
+.scroll-speed-gauge {
+  position: fixed;
+  bottom: 100px;
+  right: 30px;
+  width: 4px;
+  height: 100px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  z-index: 9995;
+  overflow: hidden;
+}
+
+.scroll-speed-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 0%;
+  background: linear-gradient(to top, #4caf50 0%, #ff5722 100%);
+  transition: height 0.1s ease;
+  border-radius: 2px;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .drag-handle {
+    left: -28px;
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
   }
   
-  .dark-mode body {
-    background-color: var(--color-bg);
+  .drag-hint {
+    top: 50px;
+    font-size: 12px;
+    padding: 8px 16px;
   }
+  
+  .scroll-indicator {
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+  
+  .sort-helper {
+    flex-direction: column;
+    gap: var(--space-sm);
+    text-align: center;
+  }
+  
+  .speed-control {
+    bottom: 15px;
+    right: 15px;
+  }
+  
+  .turbo-hint {
+    top: 60px;
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+  
+  .scroll-speed-gauge {
+    bottom: 80px;
+    right: 20px;
+    height: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  .drag-handle {
+    left: -24px;
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+  
+  .drag-hint {
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+  
+  .speed-control {
+    bottom: 10px;
+    right: 10px;
+  }
+  
+  .scroll-speed-gauge {
+    bottom: 70px;
+    right: 15px;
+    height: 70px;
+  }
+}
+
+
+/* ---------- 【修正点6】スマホ・タッチデバイス完全対応 ---------- */
+@media (max-width: 768px) {
+  /* ドラッグハンドルのタッチターゲットを大きく */
+  .drag-handle {
+    left: -15px;
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+    opacity: 0.8;
+    z-index: 20;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd;
+  }
+  .dark-mode .drag-handle {
+    background: rgba(30, 30, 30, 0.9);
+    border-color: #444;
+  }
+
+  /* 写真カードのタッチ操作性向上 */
+  .photo-card[draggable="true"] {
+    position: relative;
+    touch-action: pan-y;
+    cursor: grab;
+  }
+
+  /* ドラッグ中の視覚フィードバック強化 */
+  .photo-card.is-dragging {
+    opacity: 0.5 !important;
+    box-shadow: 0 5px 15px rgba(33, 150, 243, 0.5);
+    transform: scale(1.02);
+    z-index: 1000;
+  }
+
+  /* ドラッグヒントをスマホ位置に調整 */
+  .drag-hint {
+    top: 70px;
+    font-size: 11px;
+    padding: 8px 12px;
+    max-width: 85%;
+    background: rgba(0,0,0,0.8);
+    border-radius: 20px;
+  }
+
+  /* スピードコントロールを左上にさらに寄せる */
+  .speed-control {
+    top: 70px !important;
+    left: 5px !important;
+    transform: scale(0.9);
+  }
+
+  /* スクロールインジケーターをコンパクトに */
+  .scroll-indicator {
+    font-size: 10px;
+    padding: 6px 12px;
+  }
+
+  /* 選択バーの高さ調整 */
+  .selection-bar {
+    padding: 10px 12px;
+  }
+
+  /* カウンターボタンを押しやすく */
+  .btn-qty {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+
+  /* ドラッグ中のアニメーションを滑らかに */
+  .photo-card.is-dragging::after {
+    border-width: 3px;
+  }
+}
+
+/* タッチデバイス（ホバー無効）専用の調整 */
+@media (hover: none) and (pointer: coarse) {
+  .photo-card:hover {
+    box-shadow: 0 2px 6px var(--light-shadow);
+  }
+  .dark-mode .photo-card:hover {
+    box-shadow: 0 2px 6px var(--color-shadow);
+  }
+
+  .drag-handle:hover {
+    opacity: 0.8;
+    transform: translateY(-50%) scale(1);
+  }
+
+  /* ホバーによる意図しない変形を無効化 */
+  .btn-item:hover,
+  .add-btn:hover,
+  .batch-btn:hover,
+  .wish-toggle-btn:hover {
+    transform: none;
+  }
+}
+
+/* 極小画面（〜360px）向け */
+@media (max-width: 360px) {
+  .drag-handle {
+    left: -12px;
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .speed-control {
+    top: 65px !important;
+    left: 2px !important;
+    transform: scale(0.8);
+  }
+
+  .drag-hint {
+    top: 65px;
+    font-size: 10px;
+    padding: 6px 10px;
+  }
+
+  .photo-card {
+    padding: 10px;
+  }
+}
+
+/* ドラッグ終了時のトランジションをスムーズに */
+.photo-card {
+  transition: opacity 0.25s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.photo-card.is-dragging {
+  transition: opacity 0.1s ease, transform 0.1s ease;
 }
