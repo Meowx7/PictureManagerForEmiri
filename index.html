@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
   <title>生写真管理For=Love</title>
 
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -39,1454 +39,2199 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useCallback, useMemo } = React;
-    const STORAGE_KEY = "photocard_inventory_v3_manage_plus";
-    const genId = () => 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const SOURCE_OPTIONS = ["入手先", "メルカリ", "自引き", "店舗", "譲渡", "その他"];
+  const { useState, useEffect, useCallback, useMemo, useRef } = React;
+const STORAGE_KEY = "photocard_inventory_v4_manage_drag";
+const genId = () => 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+const SOURCE_OPTIONS = ["入手先", "メルカリ", "自引き", "店舗", "譲渡", "その他"];
 
-    const DEFAULT_GROUPS = [{ name: "=Love", members: ["大谷映美里"] }];
+const DEFAULT_GROUPS = [{ name: "=Love", members: ["大谷映美里"] }];
 
-    // 利用可能なテンプレートファイルのリスト
-    const AVAILABLE_TEMPLATES = [
-      'template.csv',
-      'template1.csv',
-      'template2.csv', 
-      'template3.csv',
-      'template4.csv',
-      'template5.csv'
-    ];
+// 利用可能なテンプレートファイルのリスト
+const AVAILABLE_TEMPLATES = [
+  'template.csv',
+  'template1.csv',
+  'template2.csv', 
+  'template3.csv',
+  'template4.csv',
+  'template5.csv'
+];
 
-    const formatWithComma = (val) => {
-      if (!val) return "";
-      return val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    };
+const formatWithComma = (val) => {
+  if (!val) return "";
+  return val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
 
-    // タブ区切り（TSV）とカンマ区切り（CSV）両方に対応したパーサー
-    function parseCSV(text, delimiter = '\t') {
-      if (!text) return [];
-      const rows = []; 
-      let row = []; 
-      let field = ''; 
-      let inQuotes = false;
-      
-      for (let i = 0; i < text.length; i++) {
-        const c = text[i], next = text[i+1];
-        
-        if (inQuotes) {
-          if (c === '"' && next === '"') { 
-            field += '"'; 
-            i++; 
-          } else if (c === '"') {
-            inQuotes = false;
-          } else {
-            field += c;
-          }
-        } else {
-          if (c === '"') {
-            inQuotes = true;
-          } else if (c === delimiter) { 
-            row.push(field.trim()); 
-            field = ''; 
-          } else if (c === '\n' || c === '\r') {
-            if (field || row.length) { 
-              row.push(field.trim()); 
-              rows.push(row); 
-            }
-            row = []; 
-            field = ''; 
-            if (c === '\r' && next === '\n') i++;
-          } else {
-            field += c;
-          }
-        }
-      }
-      
-      if (field || row.length) { 
-        row.push(field.trim()); 
-        rows.push(row); 
-      }
-      
-      return rows;
-    }
-
-    // タブ区切りCSV（サンプル形式）をアイテムに変換
-    const parseTabCSVRowToItem = (row, selectedGroup, selectedMember, index = 0) => {
-      if (!row || row.length < 2) return null;
-      
-      const now = Date.now();
-      const createdAt = now - index;
-      
-      // タブ区切りCSV形式: [thumbnail, name, otherImages]
-      // サンプルでは3列目に改行区切りの複数URLがある
-      const thumbnail = row[0] || "";
-      const name = row[1] || "名称なし";
-      let otherImages = [];
-      
-      if (row.length > 2 && row[2]) {
-        // 3列目は複数行のURL（改行区切り）
-        // クォートや余分な空白を処理
-        const imagesText = row[2].replace(/"/g, '').trim();
-        if (imagesText) {
-          otherImages = imagesText.split(/\r?\n/).map(url => url.trim()).filter(url => url);
-        }
-      }
-      
-      return {
-        id: genId(),
-        group: selectedGroup,
-        member: selectedMember,
-        name: name,
-        thumbnail: thumbnail,
-        otherImages: otherImages,
-        yori: 0, 
-        chuu: 0, 
-        hiki: 0,
-        syori: 0,
-        schuu: 0,
-        shiki: 0,
-        memo: "",
-        price: "",
-        source: "入手先",
-        isWish: false,
-        createdAt
-      };
-    };
-
-    // 既存のカンマ区切りCSV用パーサー（互換性維持）
-    const parseCommaCSVRowToItem = (row, selectedGroup, selectedMember, index = 0) => {
-      if (!row || row.length < 2) return null;
-      
-      const now = Date.now();
-      const createdAt = now - index;
-      const isShortFormat = row.length < 10;
-      
-      if (isShortFormat) {
-        return {
-          id: genId(),
-          group: selectedGroup,
-          member: selectedMember,
-          name: row[1] || "名称なし",
-          thumbnail: row[0] || "",
-          otherImages: row[2] ? row[2].split(/[\n ]+/) : [],
-          yori: 0, 
-          chuu: 0, 
-          hiki: 0,
-          syori: 0,
-          schuu: 0,
-          shiki: 0,
-          memo: "",
-          price: "",
-          source: "入手先",
-          isWish: false,
-          createdAt
-        };
+// CSVパーサー関数
+function parseCSV(text, delimiter = '\t') {
+  if (!text) return [];
+  const rows = []; 
+  let row = []; 
+  let field = ''; 
+  let inQuotes = false;
+  
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], next = text[i+1];
+    
+    if (inQuotes) {
+      if (c === '"' && next === '"') { 
+        field += '"'; 
+        i++; 
+      } else if (c === '"') {
+        inQuotes = false;
       } else {
-        return {
-          id: genId(),
-          group: row[0] || selectedGroup,
-          member: row[1] || selectedMember,
-          name: row[2] || "名称なし",
-          thumbnail: row[7] || "",
-          otherImages: row[11] ? row[11].split("|") : [],
-          yori: parseInt(row[3]) || 0, 
-          chuu: parseInt(row[4]) || 0, 
-          hiki: parseInt(row[5]) || 0,
-          syori: parseInt(row[12]) || 0,
-          schuu: parseInt(row[13]) || 0,
-          shiki: parseInt(row[14]) || 0,
-          memo: row[6] || "",
-          price: (row[8] || "").slice(0, 9),
-          source: row[9] || "入手先",
-          isWish: row[10] === "1",
-          createdAt
-        };
+        field += c;
+      }
+    } else {
+      if (c === '"') {
+        inQuotes = true;
+      } else if (c === delimiter) { 
+        row.push(field.trim()); 
+        field = ''; 
+      } else if (c === '\n' || c === '\r') {
+        if (field || row.length) { 
+          row.push(field.trim()); 
+          rows.push(row); 
+        }
+        row = []; 
+        field = ''; 
+        if (c === '\r' && next === '\n') i++;
+      } else {
+        field += c;
+      }
+    }
+  }
+  
+  if (field || row.length) { 
+    row.push(field.trim()); 
+    rows.push(row); 
+  }
+  
+  return rows;
+}
+
+// タブ区切りCSVをアイテムに変換
+const parseTabCSVRowToItem = (row, selectedGroup, selectedMember, index = 0) => {
+  if (!row || row.length < 2) return null;
+  
+  const now = Date.now();
+  const createdAt = now - index;
+  
+  const thumbnail = row[0] || "";
+  const name = row[1] || "名称なし";
+  let otherImages = [];
+  
+  if (row.length > 2 && row[2]) {
+    const imagesText = row[2].replace(/"/g, '').trim();
+    if (imagesText) {
+      otherImages = imagesText.split(/\r?\n/).map(url => url.trim()).filter(url => url);
+    }
+  }
+  
+  return {
+    id: genId(),
+    group: selectedGroup,
+    member: selectedMember,
+    name: name,
+    thumbnail: thumbnail,
+    otherImages: otherImages,
+    yori: 0, 
+    chuu: 0, 
+    hiki: 0,
+    syori: 0,
+    schuu: 0,
+    shiki: 0,
+    memo: "",
+    price: "",
+    source: "入手先",
+    isWish: false,
+    createdAt,
+    order: index
+  };
+};
+
+// カンマ区切りCSV用パーサー
+const parseCommaCSVRowToItem = (row, selectedGroup, selectedMember, index = 0) => {
+  if (!row || row.length < 2) return null;
+  
+  const now = Date.now();
+  const createdAt = now - index;
+  const isShortFormat = row.length < 10;
+  
+  if (isShortFormat) {
+    return {
+      id: genId(),
+      group: selectedGroup,
+      member: selectedMember,
+      name: row[1] || "名称なし",
+      thumbnail: row[0] || "",
+      otherImages: row[2] ? row[2].split(/[\n ]+/) : [],
+      yori: 0, 
+      chuu: 0, 
+      hiki: 0,
+      syori: 0,
+      schuu: 0,
+      shiki: 0,
+      memo: "",
+      price: "",
+      source: "入手先",
+      isWish: false,
+      createdAt,
+      order: index
+    };
+  } else {
+    return {
+      id: genId(),
+      group: row[0] || selectedGroup,
+      member: row[1] || selectedMember,
+      name: row[2] || "名称なし",
+      thumbnail: row[7] || "",
+      otherImages: row[11] ? row[11].split("|") : [],
+      yori: parseInt(row[3]) || 0, 
+      chuu: parseInt(row[4]) || 0, 
+      hiki: parseInt(row[5]) || 0,
+      syori: parseInt(row[12]) || 0,
+      schuu: parseInt(row[13]) || 0,
+      shiki: parseInt(row[14]) || 0,
+      memo: row[6] || "",
+      price: (row[8] || "").slice(0, 9),
+      source: row[9] || "入手先",
+      isWish: row[10] === "1",
+      createdAt,
+      order: index
+    };
+  }
+};
+
+function MiniChart({ percent, color, isDarkMode }) {
+  const r = 18; const c = 2 * Math.PI * r;
+  const p = isNaN(percent) ? 0 : percent;
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40">
+      <circle cx="20" cy="20" r={r} stroke={isDarkMode ? "#333" : "#eee"} strokeWidth="4" fill="none" />
+      <circle cx="20" cy="20" r={r} stroke={color} strokeWidth="4" fill="none"
+        strokeDasharray={`${(p / 100) * c} ${c}`} transform="rotate(-90 20 20)" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+const compressImage = (file, maxWidth = 500) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.src = e.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(maxWidth / img.width, 1);
+        canvas.width = img.width * scale; canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.onerror = () => resolve("");
+    };
+  });
+};
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null);
+  const [availableTemplates, setAvailableTemplates] = useState([]);
+  
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("dark_mode") === "true");
+  const quickBtnStyle = (isDark) => ({
+    flex: 1,
+    padding: '8px 0',
+    fontSize: '11px',
+    borderRadius: '6px',
+    border: '1px solid ' + (isDark ? '#444' : '#ccc'),
+    background: isDark ? '#333' : '#fff',
+    color: isDark ? '#fff' : '#333',
+    cursor: 'pointer'
+  });
+  const [appWidth, setAppWidth] = useState(() => localStorage.getItem("app_width") || "600px");
+  
+  const [groups, setGroups] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const p = JSON.parse(saved);
+      return (Array.isArray(p.groups) && p.groups.length > 0) ? p.groups : DEFAULT_GROUPS;
+    }
+    return DEFAULT_GROUPS;
+  });
+
+  const [items, setItems] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const p = JSON.parse(saved);
+      if (Array.isArray(p.items)) {
+        return p.items.map((item, index) => ({
+          ...item,
+          order: item.order !== undefined ? item.order : index
+        }));
+      }
+    }
+    return [];
+  });
+  
+  const [selectedGroup, setSelectedGroup] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const p = JSON.parse(saved);
+      if (Array.isArray(p.groups) && p.groups.length > 0) return p.groups[0].name;
+    }
+    return "=Love";
+  });
+  
+  const [selectedMember, setSelectedMember] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const p = JSON.parse(saved);
+      if (Array.isArray(p.groups) && p.groups.length > 0 && p.groups[0].members.length > 0) return p.groups[0].members[0];
+    }
+    return "大谷映美里";
+  });
+
+  const [showOnlyWish, setShowOnlyWish] = useState(false);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("new");
+  const [activeModal, setActiveModal] = useState(null);
+  
+  const [editItemId, setEditItemId] = useState(null);
+  const [editingNameId, setEditingNameId] = useState(null);
+  const [targetName, setTargetName] = useState("");
+  const [targetId, setTargetId] = useState(null); 
+  const [errorMsg, setErrorMsg] = useState("");
+  const [isManageMode, setIsManageMode] = useState(false);
+  const [viewer, setViewer] = useState(null);
+  const [tempImages, setTempImages] = useState([]);
+  const [tempMainUrl, setTempMainUrl] = useState("");
+  const [selectedItemIds, setSelectedItemIds] = useState([]);
+  const [expandedSignItems, setExpandedSignItems] = useState([]);
+
+  // ドラッグ＆ドロップ用の状態（挿入機能対応）
+  const [draggedItemId, setDraggedItemId] = useState(null);
+  const [dragOverItemId, setDragOverItemId] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropPosition, setDropPosition] = useState(null); // 'before' or 'after'
+  const [dragInsertGuide, setDragInsertGuide] = useState(null); // 挿入ガイドラインの位置
+
+  // 自動スクロール用の状態
+  const [scrollIntervalId, setScrollIntervalId] = useState(null);
+  const [scrollDirection, setScrollDirection] = useState(0);
+  
+  // スクロール速度を可変制御する追加の状態
+  const [scrollSpeedMultiplier, setScrollSpeedMultiplier] = useState(1);
+
+  // メッセージ管理用の状態
+  const [messageTimeout, setMessageTimeout] = useState(null);
+  
+  // 最新のマウス位置を追跡するref
+  const lastMousePosition = useRef({ x: 0, y: 0 });
+  
+  // タッチイベント用の状態（既存）
+  const [touchStartY, setTouchStartY] = useState(null);
+  const [touchStartTime, setTouchStartTime] = useState(null);
+  const [touchDraggedItemId, setTouchDraggedItemId] = useState(null);
+  const [isTouchDragging, setIsTouchDragging] = useState(false);
+  const [touchStartX, setTouchStartX] = useState(null);
+
+  // テンプレートファイルの存在確認を行う関数
+  const checkTemplateFiles = useCallback(async () => {
+    const existingTemplates = [];
+    
+    for (const fileName of AVAILABLE_TEMPLATES) {
+      try {
+        const response = await fetch(fileName, { method: 'HEAD' });
+        if (response.ok) {
+          existingTemplates.push(fileName);
+        }
+      } catch (error) {
+        console.log(`テンプレートファイル ${fileName} は存在しません`);
+      }
+    }
+    
+    setAvailableTemplates(existingTemplates);
+    console.log(`利用可能なテンプレート: ${existingTemplates.length}件`, existingTemplates);
+  }, []);
+
+  // メッセージ表示関数
+  const showError = useCallback((msg) => {
+    if (messageTimeout) {
+      clearTimeout(messageTimeout);
+      setMessageTimeout(null);
+    }
+    
+    setErrorMsg(msg);
+    
+    const duration = msg.includes("クラウドに保存しました") || 
+                     msg.includes("クラウドからデータを読み込みました") 
+                     ? 2000 : 3000;
+    
+    const timeoutId = setTimeout(() => {
+      setErrorMsg("");
+      setMessageTimeout(null);
+    }, duration);
+    
+    setMessageTimeout(timeoutId);
+  }, [messageTimeout]);
+
+  // コンポーネントがアンマウントされる時にタイマーをクリア
+  useEffect(() => {
+    return () => {
+      if (messageTimeout) {
+        clearTimeout(messageTimeout);
+      }
+      if (scrollIntervalId) {
+        clearInterval(scrollIntervalId);
+      }
+    };
+  }, [messageTimeout, scrollIntervalId]);
+
+  // ---------- 【修正点1】スクロール速度を適正化 ----------
+  const optimizedScroll = useCallback(() => {
+    if (scrollDirection === 0) return;
+    
+    // 基本速度を15px/フレームに低減（旧50）
+    const baseSpeed = 15;
+    const multiplier = scrollSpeedMultiplier;
+    const direction = Math.sign(scrollDirection);
+    const intensity = Math.min(Math.abs(scrollDirection), 3);
+    
+    // 速度計算：基本速度 × 乗数 × 強度
+    let speed = baseSpeed * multiplier * intensity;
+    
+    // マウス位置に基づいた追加ブースト（控えめ）
+    if (lastMousePosition.current) {
+      const windowHeight = window.innerHeight;
+      const mouseY = lastMousePosition.current.y;
+      const aggressiveZone = 50;
+      
+      const distanceFromEdge = Math.min(mouseY, windowHeight - mouseY);
+      if (distanceFromEdge < aggressiveZone) {
+        // 最大2倍ブースト
+        const boost = 1 + (aggressiveZone - distanceFromEdge) / aggressiveZone;
+        speed *= boost;
+      }
+    }
+    
+    // 最終スクロール速度（最大200px/フレーム）
+    const finalSpeed = direction * Math.min(speed, 200);
+    
+    window.scrollBy({
+      top: finalSpeed,
+      behavior: 'instant'
+    });
+  }, [scrollDirection, scrollSpeedMultiplier]);
+
+  // requestAnimationFrameを使用したスクロールループ
+  useEffect(() => {
+    if (scrollDirection === 0) return;
+    
+    let animationFrameId;
+    let lastTime = performance.now();
+    
+    const scrollLoop = (currentTime) => {
+      const deltaTime = currentTime - lastTime;
+      
+      if (deltaTime >= 16) {
+        optimizedScroll();
+        lastTime = currentTime;
+      }
+      
+      if (scrollDirection !== 0) {
+        animationFrameId = requestAnimationFrame(scrollLoop);
+      }
+    };
+    
+    animationFrameId = requestAnimationFrame(scrollLoop);
+    
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [scrollDirection, optimizedScroll]);
+
+  // グローバルなマウス移動監視（PCスクロール用）
+  useEffect(() => {
+    const handleGlobalDragOver = (e) => {
+      if (!isDragging || !isManageMode || sortBy !== "manual") return;
+      
+      lastMousePosition.current = { x: e.clientX, y: e.clientY };
+      
+      const windowHeight = window.innerHeight;
+      const scrollThreshold = 80;
+      const aggressiveScrollThreshold = 30;
+      
+      if (e.clientY < aggressiveScrollThreshold) {
+        setScrollDirection(-2);
+      } else if (e.clientY < scrollThreshold) {
+        setScrollDirection(-1);
+      } else if (e.clientY > windowHeight - aggressiveScrollThreshold) {
+        setScrollDirection(2);
+      } else if (e.clientY > windowHeight - scrollThreshold) {
+        setScrollDirection(1);
+      } else {
+        setScrollDirection(0);
       }
     };
 
-    function MiniChart({ percent, color, isDarkMode }) {
-      const r = 18; const c = 2 * Math.PI * r;
-      const p = isNaN(percent) ? 0 : percent;
-      return (
-        <svg width="40" height="40" viewBox="0 0 40 40">
-          <circle cx="20" cy="20" r={r} stroke={isDarkMode ? "#333" : "#eee"} strokeWidth="4" fill="none" />
-          <circle cx="20" cy="20" r={r} stroke={color} strokeWidth="4" fill="none"
-            strokeDasharray={`${(p / 100) * c} ${c}`} transform="rotate(-90 20 20)" strokeLinecap="round" />
-        </svg>
-      );
+    const handleGlobalDragEnd = () => {
+      setScrollDirection(0);
+      setIsDragging(false);
+      setDraggedItemId(null);
+      setDragOverItemId(null);
+      setDropPosition(null);
+      setDragInsertGuide(null);
+      
+      // 透明度を完全リセット
+      const allCards = document.querySelectorAll('.photo-card');
+      allCards.forEach(card => {
+        card.style.opacity = '1';
+        card.style.transform = '';
+      });
+    };
+
+    if (isDragging && isManageMode && sortBy === "manual") {
+      document.addEventListener('dragover', handleGlobalDragOver);
+      document.addEventListener('dragend', handleGlobalDragEnd);
+      document.addEventListener('drop', handleGlobalDragEnd);
+      
+      document.body.style.overscrollBehavior = 'none';
+      document.body.style.touchAction = 'none';
     }
 
-    const compressImage = (file, maxWidth = 500) => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (e) => {
-          const img = new Image();
-          img.src = e.target.result;
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const scale = Math.min(maxWidth / img.width, 1);
-            canvas.width = img.width * scale; canvas.height = img.height * scale;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', 0.7));
-          };
-          img.onerror = () => resolve("");
-        };
-      });
+    return () => {
+      document.removeEventListener('dragover', handleGlobalDragOver);
+      document.removeEventListener('dragend', handleGlobalDragEnd);
+      document.removeEventListener('drop', handleGlobalDragEnd);
+      
+      document.body.style.overscrollBehavior = '';
+      document.body.style.touchAction = '';
+    };
+  }, [isDragging, isManageMode, sortBy]);
+
+  // ---------- 【修正点3 & 6】スマホタッチドラッグ完全対応 ----------
+  // 既存のタッチハンドラーを強化
+  const handleTouchStart = (e, itemId) => {
+    if (!isManageMode || sortBy !== "manual") return;
+    
+    const touch = e.touches[0];
+    setTouchStartY(touch.clientY);
+    setTouchStartX(touch.clientX);
+    setTouchStartTime(Date.now());
+    setTouchDraggedItemId(itemId);
+    
+    const elem = document.querySelector(`[data-item-id="${itemId}"]`);
+    if (elem) elem.style.opacity = '0.5';
+    
+    // デフォルトのスクロールを防止（ドラッグ開始時）
+    if (e.cancelable) e.preventDefault();
+  };
+
+  const handleTouchMove = (e, itemId) => {
+    if (!touchDraggedItemId) return;
+    
+    // デフォルトのスクロール／ズームを防止
+    if (e.cancelable) e.preventDefault();
+    
+    const touch = e.touches[0];
+    const deltaY = Math.abs(touch.clientY - touchStartY);
+    const deltaX = Math.abs(touch.clientX - touchStartX);
+    const deltaTime = Date.now() - touchStartTime;
+    
+    // 縦方向に十分移動したらドラッグ開始（横スワイプと区別）
+    if (!isTouchDragging && deltaY > 8 && deltaX < 30 && deltaTime > 120) {
+      setIsTouchDragging(true);
+      setDraggedItemId(touchDraggedItemId);
+      setIsDragging(true);
+    }
+    
+    if (isTouchDragging) {
+      // マウス位置更新（自動スクロール用）
+      lastMousePosition.current = { x: touch.clientX, y: touch.clientY };
+      
+      // 画面端での自動スクロール判定
+      const windowHeight = window.innerHeight;
+      const scrollThreshold = 90;
+      
+      if (touch.clientY < scrollThreshold) {
+        setScrollDirection(-1);
+      } else if (touch.clientY > windowHeight - scrollThreshold) {
+        setScrollDirection(1);
+      } else {
+        setScrollDirection(0);
+      }
+      
+      // ドラッグオーバー処理
+      if (itemId && itemId !== touchDraggedItemId) {
+        handleDragOver(e, itemId);
+      }
+    }
+  };
+
+  const handleTouchEnd = (e, itemId) => {
+    // ドロップ処理
+    if (isTouchDragging && touchDraggedItemId && itemId && itemId !== touchDraggedItemId) {
+      handleDrop(e, itemId);
+    } else {
+      handleDragEnd(e); // ドラッグ終了
+    }
+    
+    // タッチ状態リセット
+    setIsTouchDragging(false);
+    setTouchDraggedItemId(null);
+    setTouchStartY(null);
+    setTouchStartTime(null);
+    setTouchStartX(null);
+    setScrollDirection(0);
+    
+    // 透明度リセット
+    if (touchDraggedItemId) {
+      const elem = document.querySelector(`[data-item-id="${touchDraggedItemId}"]`);
+      if (elem) elem.style.opacity = '1';
+    }
+    
+    if (e.cancelable) e.preventDefault();
+  };
+
+  // グローバルタッチリスナー（指がカード外に移動してもスクロール可能に）
+  useEffect(() => {
+    const globalTouchMove = (e) => {
+      if (!isTouchDragging || !isManageMode || sortBy !== "manual") return;
+      e.preventDefault(); // ページ全体のスクロールをロック
+      
+      const touch = e.touches[0];
+      lastMousePosition.current = { x: touch.clientX, y: touch.clientY };
+      
+      const windowHeight = window.innerHeight;
+      const scrollThreshold = 90;
+      
+      if (touch.clientY < scrollThreshold) {
+        setScrollDirection(-1);
+      } else if (touch.clientY > windowHeight - scrollThreshold) {
+        setScrollDirection(1);
+      } else {
+        setScrollDirection(0);
+      }
     };
 
-    function App() {
-      const [user, setUser] = useState(null);
-      const [isAuthReady, setIsAuthReady] = useState(false);
-      const [isLoading, setIsLoading] = useState(false);
-      const [lastSaved, setLastSaved] = useState(null);
-      const [availableTemplates, setAvailableTemplates] = useState([]);
+    const globalTouchEnd = (e) => {
+      if (!isTouchDragging) return;
+      handleDragEnd(e);
+      setIsTouchDragging(false);
+      setTouchDraggedItemId(null);
+    };
+
+    if (isTouchDragging && isManageMode && sortBy === "manual") {
+      document.addEventListener('touchmove', globalTouchMove, { passive: false });
+      document.addEventListener('touchend', globalTouchEnd, { passive: false });
+      document.addEventListener('touchcancel', globalTouchEnd, { passive: false });
+    }
+
+    return () => {
+      document.removeEventListener('touchmove', globalTouchMove);
+      document.removeEventListener('touchend', globalTouchEnd);
+      document.removeEventListener('touchcancel', globalTouchEnd);
+    };
+  }, [isTouchDragging, isManageMode, sortBy]);
+
+  // Firebaseログイン状態監視
+  useEffect(() => {
+    if (!window.fb) {
+      setIsAuthReady(true);
+      return;
+    }
+    const unsubscribe = window.fb.onAuthStateChanged(window.fb.auth, async (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
       
-      const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("dark_mode") === "true");
-      const quickBtnStyle = (isDark) => ({
-        flex: 1,
-        padding: '8px 0',
-        fontSize: '11px',
-        borderRadius: '6px',
-        border: '1px solid ' + (isDark ? '#444' : '#ccc'),
-        background: isDark ? '#333' : '#fff',
-        color: isDark ? '#fff' : '#333',
-        cursor: 'pointer'
-      });
-      const [appWidth, setAppWidth] = useState(() => localStorage.getItem("app_width") || "600px");
-      
-      const [groups, setGroups] = useState(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const p = JSON.parse(saved);
-          return (Array.isArray(p.groups) && p.groups.length > 0) ? p.groups : DEFAULT_GROUPS;
-        }
-        return DEFAULT_GROUPS;
-      });
-
-      const [items, setItems] = useState([]);
-      const [selectedGroup, setSelectedGroup] = useState(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const p = JSON.parse(saved);
-          if (Array.isArray(p.groups) && p.groups.length > 0) return p.groups[0].name;
-        }
-        return "=Love";
-      });
-      
-      const [selectedMember, setSelectedMember] = useState(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const p = JSON.parse(saved);
-          if (Array.isArray(p.groups) && p.groups.length > 0 && p.groups[0].members.length > 0) return p.groups[0].members[0];
-        }
-        return "大谷映美里";
-      });
-
-      const [showOnlyWish, setShowOnlyWish] = useState(false);
-      const [search, setSearch] = useState("");
-      const [sortBy, setSortBy] = useState("new");
-      const [activeModal, setActiveModal] = useState(null);
-      
-      const [editItemId, setEditItemId] = useState(null);
-      const [editingNameId, setEditingNameId] = useState(null);
-      const [targetName, setTargetName] = useState("");
-      const [targetId, setTargetId] = useState(null); 
-      const [errorMsg, setErrorMsg] = useState("");
-      const [isManageMode, setIsManageMode] = useState(false);
-      const [viewer, setViewer] = useState(null);
-      const [tempImages, setTempImages] = useState([]);
-      const [tempMainUrl, setTempMainUrl] = useState("");
-      const [selectedItemIds, setSelectedItemIds] = useState([]);
-      const [expandedSignItems, setExpandedSignItems] = useState([]); // 折りたたみ状態を管理
-
-
-      // テンプレートファイルの存在確認を行う関数
-      const checkTemplateFiles = useCallback(async () => {
-        const existingTemplates = [];
-        
-        for (const fileName of AVAILABLE_TEMPLATES) {
-          try {
-            const response = await fetch(fileName, { method: 'HEAD' });
-            if (response.ok) {
-              existingTemplates.push(fileName);
-            }
-          } catch (error) {
-            // エラーが発生した場合はファイルが存在しないと判断
-            console.log(`テンプレートファイル ${fileName} は存在しません`);
-          }
-        }
-        
-        setAvailableTemplates(existingTemplates);
-        console.log(`利用可能なテンプレート: ${existingTemplates.length}件`, existingTemplates);
-      }, []);
-
-      // Firebaseのログイン状態を監視するuseEffect
-      useEffect(() => {
-        if (!window.fb) {
-          setIsAuthReady(true);
-          return;
-        }
-        const unsubscribe = window.fb.onAuthStateChanged(window.fb.auth, async (currentUser) => {
-          setUser(currentUser);
-          setIsAuthReady(true);
-          
-          // ユーザーがログインしたらFirestoreからデータを読み込む
-          if (currentUser) {
-            await loadFromFirestore(currentUser.uid);
-          }
-          
-          // テンプレートファイルの存在確認を行う
-          checkTemplateFiles();
-        });
-        return () => unsubscribe();
-      }, [checkTemplateFiles]);
-
-      // Firestoreからデータを読み込む関数
-      const loadFromFirestore = async (userId) => {
-        try {
-          setIsLoading(true);
-          const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
-          const docSnap = await window.fb.getDoc(docRef);
-          
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            console.log("Firestoreからデータを読み込みました:", data);
-            
-            if (Array.isArray(data.groups) && data.groups.length > 0) {
-              setGroups(data.groups);
-              setSelectedGroup(data.groups[0].name);
-              if (data.groups[0].members.length > 0) {
-                setSelectedMember(data.groups[0].members[0]);
-              }
-            }
-            
-            if (Array.isArray(data.items)) {
-              setItems(data.items);
-            }
-            
-            showError("クラウドからデータを読み込みました");
-            setLastSaved(new Date().toLocaleTimeString());
-          } else {
-            console.log("Firestoreにデータがありません。ローカルデータを保存します。");
-            // 初回ログイン時はローカルデータをFirestoreに保存
-            await saveToFirestore(userId);
-          }
-        } catch (error) {
-          console.error("Firestore読み込みエラー:", error);
-          showError("クラウドデータの読み込みに失敗しました");
-        } finally {
-          setIsLoading(false);
-        }
-      };
-
-      // 修正した保存関数の例
-      const saveToFirestore = async (userId) => {
-        try {
-          console.log("保存開始:", userId);
-          
-          const dataToSave = {
-            groups,
-            items,
-            lastUpdated: new Date().toISOString()
-          };
-          
-          const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
-          
-          // Firestoreに保存
-          await window.fb.setDoc(docRef, dataToSave, { merge: true });
-          
-          console.log("保存成功");
-          setErrorMsg("クラウドに保存しました ✓");
-          setLastSaved(new Date().toLocaleTimeString());
-          
-        } catch (error) {
-          console.error("保存エラー詳細:", error);
-          
-          // エラーコードに応じたメッセージ
-          if (error.code === 'permission-denied') {
-            setErrorMsg("❌ 保存権限がありません。管理者に連絡してください。");
-          } else if (error.code === 'unavailable') {
-            setErrorMsg("🌐 ネットワーク接続を確認してください");
-          } else {
-            setErrorMsg(`保存失敗: ${error.message}`);
-          }
-          
-          // エラー時はローカルに保存
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
-        }
-      };
-
-      // ローカルストレージにも保存
-      useEffect(() => { 
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); 
-        localStorage.setItem("dark_mode", isDarkMode);
-        localStorage.setItem("app_width", appWidth);
-      }, [groups, items, isDarkMode, appWidth]);
-
-      // データ変更時に自動でFirestoreに保存（デバウンス処理付き）
-      useEffect(() => {
-        if (!user) return;
-        
-        const timer = setTimeout(() => {
-          saveToFirestore(user.uid);
-        }, 1000); // 1秒間隔で自動保存
-        
-        return () => clearTimeout(timer);
-      }, [groups, items, user]);
-
-      // Googleログイン処理
-      const handleGoogleLogin = async () => {
-        try {
-          const result = await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
-          console.log("ログイン成功:", result.user);
-        } catch (error) {
-          console.error("ログインエラー:", error);
-          showError("ログインに失敗しました");
-        }
-      };
-
-      // ログアウト処理
-      const handleLogout = async () => {
-        try {
-          // ログアウト前にローカルに保存
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
-          await window.fb.signOut(window.fb.auth);
-        } catch (error) {
-          console.error("ログアウトエラー:", error);
-          showError("ログアウトに失敗しました");
-        }
-      };
-
-      // 手動でFirestoreに保存
-      const handleManualSave = async () => {
-        if (!user) {
-          showError("ログインしてください");
-          return;
-        }
-        await saveToFirestore(user.uid);
-      };
-
-      // 手動でFirestoreから読み込み
-      const handleManualLoad = async () => {
-        if (!user) {
-          showError("ログインしてください");
-          return;
-        }
-        await loadFromFirestore(user.uid);
-      };
-
-      const showError = (msg) => { setErrorMsg(msg); setTimeout(() => setErrorMsg(""), 1000); };
-
-      const updateItem = useCallback((id, key, val) => {
-        setItems(p => p.map(i => i.id === id ? { ...i, [key]: val } : i));
-      }, []);
-
-      const toggleSelectItem = (id) => {
-        if (!isManageMode) return;
-        setSelectedItemIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-      };
-
-      const toggleSignCounters = (id) => {
-        setExpandedSignItems(prev => 
-          prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]
-        );
-      };
-
-      const handleImportCSV = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (selectedGroup === "ALL" || selectedMember === "ALL") { 
-          showError("グループとメンバーを選択してから取り込んでください"); 
-          e.target.value = ""; 
-          return; 
-        }
-        
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          try {
-            const text = ev.target.result;
-            
-            // ファイル形式を自動判定（タブ区切りかカンマ区切りか）
-            const hasTabs = text.includes('\t');
-            const delimiter = hasTabs ? '\t' : ',';
-            
-            console.log(`CSV形式を検出: ${hasTabs ? 'タブ区切り' : 'カンマ区切り'}`);
-            
-            const rows = parseCSV(text, delimiter);
-            console.log(`読み込んだ行数: ${rows.length}`);
-            
-            // 先頭行をデバッグ出力
-            if (rows.length > 0) {
-              console.log("最初の行:", rows[0]);
-              console.log("列数:", rows[0].length);
-            }
-            
-            const newItems = rows.map((row, index) => {
-              if (hasTabs) {
-                // タブ区切り形式の場合
-                return parseTabCSVRowToItem(row, selectedGroup, selectedMember, index);
-              } else {
-                // カンマ区切り形式の場合
-                return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, index);
-              }
-            }).filter(Boolean);
-            
-            console.log(`変換されたアイテム数: ${newItems.length}`);
-            if (newItems.length > 0) {
-              console.log("最初のアイテム:", newItems[0]);
-            }
-            
-            setItems(p => [...newItems, ...p]);
-            showError(`${newItems.length}件取り込みました (${hasTabs ? 'タブ区切り' : 'カンマ区切り'})`);
-          } catch(err) { 
-            console.error("CSV解析エラー:", err);
-            showError("CSV形式が正しくありません: " + err.message); 
-          }
-        };
-        reader.readAsText(file, 'UTF-8');
-        e.target.value = "";
-      };
-
-      // テンプレート読み込み関数（改善版）
-      const loadExternalTemplate = async (fileName) => {
-        try {
-          setIsLoading(true);
-          const response = await fetch(fileName);
-          if (!response.ok) {
-            throw new Error(`テンプレートファイル(${fileName})が見つかりません (ステータス: ${response.status})`);
-          }
-          
-          const csvText = await response.text();
-          
-          // ファイル形式を自動判定
-          const hasTabs = csvText.includes('\t');
-          const delimiter = hasTabs ? '\t' : ',';
-          
-          const rows = parseCSV(csvText, delimiter);
-          
-          const newItems = rows.map((row, index) => {
-            if (hasTabs) {
-              return parseTabCSVRowToItem(row, selectedGroup, selectedMember, index);
-            } else {
-              return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, index);
-            }
-          }).filter(Boolean);
-
-          setItems(p => [...newItems, ...p]);
-          showError(`${newItems.length}件のテンプレートを読み込みました (${fileName})`);
-          setActiveModal(null);
-        } catch (err) {
-          console.error("テンプレート読み込みエラー:", err);
-          showError(`読み込み失敗: ${err.message}`);
-          
-          // テンプレートファイルを再チェック
-          checkTemplateFiles();
-        } finally {
-          setIsLoading(false);
-        }
-      };
-
-      // CSV出力関数
-      const handleCSVExport = () => {
-        const csvData = items.map(i => [
-          i.group, i.member, i.name, i.yori, i.chuu, i.hiki, i.memo||"", i.thumbnail||"", i.price||"", i.source||"入手先", i.isWish?"1":"0", (i.otherImages||[]).join("|"), i.syori||0, i.schuu||0, i.shiki||0
-        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-        const blob = new Blob([csvData], {type:"text/csv;charset=utf-8;"});
-        const a = document.createElement("a"); 
-        a.href = URL.createObjectURL(blob); 
-        a.download="photo_data.csv"; 
-        a.click();
-      };
-
-      // TSV出力関数（サンプル形式と同じ形式で出力）
-      const handleTSVExport = () => {
-        const tsvData = items.map(i => {
-          const thumbnail = i.thumbnail || "";
-          const name = i.name || "";
-          const otherImages = (i.otherImages || []).join("\n");
-          return `${thumbnail}\t${name}\t"${otherImages}"`;
-        }).join("\n");
-        
-        const blob = new Blob([tsvData], {type:"text/tab-separated-values;charset=utf-8;"});
-        const a = document.createElement("a"); 
-        a.href = URL.createObjectURL(blob); 
-        a.download="photo_data.tsv"; 
-        a.click();
-      };
-
-      const sortedItems = useMemo(() => {
-        let filtered = items.filter(i => 
-          (selectedGroup === "ALL" || i.group === selectedGroup) && 
-          (selectedMember === "ALL" || i.member === selectedMember) && 
-          (i.name && i.name.toLowerCase().includes(search.toLowerCase())) && 
-          (!showOnlyWish || i.isWish)
-        );
-        return filtered.sort((a, b) => {
-          const aCount = (a.yori||0)+(a.chuu||0)+(a.hiki||0)+(a.syori||0)+(a.schuu||0)+(a.shiki||0);
-          const bCount = (b.yori||0)+(b.chuu||0)+(b.hiki||0)+(b.syori||0)+(b.schuu||0)+(b.shiki||0);
-          switch (sortBy) {
-            case "name": return (a.name||"").localeCompare(b.name||"", 'ja');
-            case "new": return (b.createdAt || 0) - (a.createdAt || 0);
-            case "old": return (a.createdAt || 0) - (b.createdAt || 0);
-            case "price_high": return (parseInt(b.price)||0) - (parseInt(a.price)||0);
-            case "stock_high": return bCount - aCount;
-            case "comp_first":
-              const aComp = (a.yori>0||a.syori>0) && (a.chuu>0||a.schuu>0) && (a.hiki>0||a.shiki>0);
-              const bComp = (b.yori>0||b.syori>0) && (b.chuu>0||b.schuu>0) && (b.hiki>0||b.shiki>0);
-              return (bComp?1:0) - (aComp?1:0);
-            default: return 0;
-          }
-        });
-      }, [items, selectedGroup, selectedMember, search, showOnlyWish, sortBy]);
-
-      const batchAction = (type) => {
-        if (selectedItemIds.length === 0 || !isManageMode) return;
-        if (type === 'delete') {
-          setTargetName(`${selectedItemIds.length}件の選択項目`);
-          setActiveModal('delete_batch');
-        } else if (type === 'wish') {
-          setItems(p => p.map(i => selectedItemIds.includes(i.id) ? { ...i, isWish: true } : i));
-          showError(`${selectedItemIds.length}件を⭐に設定しました`);
-        } else if (type === 'stock') {
-          setItems(p => p.map(i => selectedItemIds.includes(i.id) ? { ...i, yori: (i.yori||0)+1, chuu: (i.chuu||0)+1, hiki: (i.hiki||0)+1 } : i));
-          showError(`${selectedItemIds.length}件の在庫を+1しました`);
-        }
-      };
-
-      const stats = useMemo(() => {
-        const filtered = items.filter(i => (selectedGroup === "ALL" || i.group === selectedGroup) && (selectedMember === "ALL" || i.member === selectedMember));
-        const totalKinds = filtered.length;
-        const totalCount = filtered.reduce((s,i) => s + (parseInt(i.yori)||0) + (parseInt(i.chuu)||0) + (parseInt(i.hiki)||0) + (parseInt(i.syori)||0) + (parseInt(i.schuu)||0) + (parseInt(i.shiki)||0), 0);
-        const totalSlots = totalKinds * 3;
-        let collectedSlots = 0;
-        let completedKinds = 0;
-        filtered.forEach(i => {
-          const hasYori = (i.yori > 0 || i.syori > 0);
-          const hasChuu = (i.chuu > 0 || i.schuu > 0);
-          const hasHiki = (i.hiki > 0 || i.shiki > 0);
-          if (hasYori) collectedSlots++;
-          if (hasChuu) collectedSlots++;
-          if (hasHiki) collectedSlots++;
-          if (hasYori && hasChuu && hasHiki) completedKinds++;
-        });
-        return { totalKinds, totalCount, totalSlots, collectedSlots, completedKinds };
-      }, [items, selectedGroup, selectedMember]);
-
-      const openEditImgModal = (item) => {
-        setEditItemId(item.id);
-        setTempMainUrl(item.thumbnail || "");
-        setTempImages(item.otherImages || []);
-        setActiveModal('edit_img');
-      };
-
-      const saveImages = () => {
-        setItems(p => p.map(it => it.id === editItemId ? { ...it, thumbnail: tempMainUrl, otherImages: tempImages } : it));
-        setActiveModal(null);
-      };
-
-      const handleCacheClear = () => {
-        if(confirm("データをすべて消去して初期状態に戻しますか？\n(この操作は取り消せません)")){
-          localStorage.removeItem(STORAGE_KEY);
-          location.reload();
-        }
-      };
-
-      // ログイン前の画面
-      if (!isAuthReady) {
-        return (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a' }}>
-            <div style={{ color: '#fff' }}>読み込み中...</div>
-          </div>
-        );
+      if (currentUser) {
+        await loadFromFirestore(currentUser.uid);
       }
+      
+      checkTemplateFiles();
+    });
+    return () => unsubscribe();
+  }, [checkTemplateFiles]);
 
-      if (!user) {
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a', gap: 20 }}>
-            <h1 style={{ color: '#fff', fontSize: 24, margin: 0 }}>生写真管理For=Love</h1>
-            <p style={{ color: '#aaa', margin: 0 }}>Googleアカウントでログインしてください</p>
-            <button 
-              onClick={handleGoogleLogin}
-              style={{
-                padding: '12px 32px',
-                fontSize: 16,
-                background: '#4285f4',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 8,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18">
-                <path fill="#fff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
-                <path fill="#fff" d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.836.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.96v2.332C2.44 15.983 5.485 18 9.003 18z"/>
-                <path fill="#fff" d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
-                <path fill="#fff" d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.428 0 9.002 0 5.485 0 2.44 2.017.96 4.958L3.967 7.29c.708-2.127 2.692-3.71 5.036-3.71z"/>
-              </svg>
-              Googleでログイン
-            </button>
-            <p style={{ color: '#777', fontSize: 12, marginTop: 20, textAlign: 'center', maxWidth: 300 }}>
-              ※ログインすると、データがクラウドに自動保存され<br />
-              別の端末でも同じデータを利用できます
-            </p>
-          </div>
-        );
+  // Firestoreからデータを読み込む関数
+  const loadFromFirestore = async (userId) => {
+    try {
+      setIsLoading(true);
+      const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
+      const docSnap = await window.fb.getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        console.log("Firestoreからデータを読み込みました:", data);
+        
+        if (Array.isArray(data.groups) && data.groups.length > 0) {
+          setGroups(data.groups);
+          setSelectedGroup(data.groups[0].name);
+          if (data.groups[0].members.length > 0) {
+            setSelectedMember(data.groups[0].members[0]);
+          }
+        }
+        
+        if (Array.isArray(data.items)) {
+          const itemsWithOrder = data.items.map((item, index) => ({
+            ...item,
+            order: item.order !== undefined ? item.order : index
+          }));
+          setItems(itemsWithOrder);
+        }
+        
+        showError("クラウドからデータを読み込みました");
+        setLastSaved(new Date().toLocaleTimeString());
+      } else {
+        console.log("Firestoreにデータがありません。ローカルデータを保存します。");
+        await saveToFirestore(userId);
       }
+    } catch (error) {
+      console.error("Firestore読み込みエラー:", error);
+      showError("クラウドデータの読み込みに失敗しました");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-      // メインのアプリ画面（ログイン後）
-      return (
-        <div className={isDarkMode ? "dark-mode" : ""} style={{ 
-          maxWidth: appWidth,
-          margin: '0 auto',
-          minHeight: '100vh',
-          transition: 'max-width 0.3s'
+  // Firestore保存関数
+  const saveToFirestore = async (userId) => {
+    try {
+      console.log("保存開始:", userId);
+      
+      const dataToSave = {
+        groups,
+        items,
+        lastUpdated: new Date().toISOString()
+      };
+      
+      const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
+      
+      await window.fb.setDoc(docRef, dataToSave, { merge: true });
+      
+      console.log("保存成功");
+      showError("クラウドに保存しました ✓");
+      setLastSaved(new Date().toLocaleTimeString());
+      
+    } catch (error) {
+      console.error("保存エラー詳細:", error);
+      
+      if (error.code === 'permission-denied') {
+        showError("❌ 保存権限がありません。管理者に連絡してください。");
+      } else if (error.code === 'unavailable') {
+        showError("🌐 ネットワーク接続を確認してください");
+      } else {
+        showError(`保存失敗: ${error.message}`);
+      }
+      
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
+    }
+  };
+
+  // ローカルストレージに保存
+  useEffect(() => { 
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); 
+    localStorage.setItem("dark_mode", isDarkMode);
+    localStorage.setItem("app_width", appWidth);
+  }, [groups, items, isDarkMode, appWidth]);
+
+  // データ変更時に自動でFirestoreに保存
+  useEffect(() => {
+    if (!user) return;
+    
+    const timer = setTimeout(() => {
+      saveToFirestore(user.uid);
+    }, 20000);
+    
+    return () => clearTimeout(timer);
+  }, [groups, items, user]);
+
+  // Googleログイン処理
+  const handleGoogleLogin = async () => {
+    try {
+      const result = await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
+      console.log("ログイン成功:", result.user);
+    } catch (error) {
+      console.error("ログインエラー:", error);
+      showError("ログインに失敗しました");
+    }
+  };
+
+  // ログアウト処理
+  const handleLogout = async () => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
+      await window.fb.signOut(window.fb.auth);
+    } catch (error) {
+      console.error("ログアウトエラー:", error);
+      showError("ログアウトに失敗しました");
+    }
+  };
+
+  // 手動でFirestoreに保存
+  const handleManualSave = async () => {
+    if (!user) {
+      showError("ログインしてください");
+      return;
+    }
+    await saveToFirestore(user.uid);
+  };
+
+  // 手動でFirestoreから読み込み
+  const handleManualLoad = async () => {
+    if (!user) {
+      showError("ログインしてください");
+      return;
+    }
+    await loadFromFirestore(user.uid);
+  };
+
+  const updateItem = useCallback((id, key, val) => {
+    setItems(p => p.map(i => i.id === id ? { ...i, [key]: val } : i));
+  }, []);
+
+  const toggleSelectItem = (id) => {
+    if (!isManageMode) return;
+    setSelectedItemIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleSignCounters = (id) => {
+    setExpandedSignItems(prev => 
+      prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]
+    );
+  };
+
+  // ドラッグ＆ドロップのハンドラー（PC用）
+  const handleDragStart = (e, itemId) => {
+    if (!isManageMode || sortBy !== "manual") return;
+    
+    e.dataTransfer.setData('text/plain', itemId);
+    e.dataTransfer.effectAllowed = 'move';
+    
+    setDraggedItemId(itemId);
+    setIsDragging(true);
+    
+    setTimeout(() => {
+      const elem = document.querySelector(`[data-item-id="${itemId}"]`);
+      if (elem) elem.style.opacity = '0.5';
+    }, 0);
+  };
+
+  // ドロップ位置計算
+  const calculateDropPosition = (e, element) => {
+    const rect = element.getBoundingClientRect();
+    let y;
+    
+    if (e.type.includes('touch')) {
+      const touch = e.touches[0];
+      y = touch.clientY;
+    } else {
+      y = e.clientY;
+    }
+    
+    const threshold = rect.height / 3;
+    
+    if (y < rect.top + threshold) {
+      return { position: 'before', guideY: rect.top };
+    } else if (y > rect.bottom - threshold) {
+      return { position: 'after', guideY: rect.bottom };
+    } else {
+      return { position: 'middle', guideY: rect.top + rect.height / 2 };
+    }
+  };
+
+  const handleDragOver = (e, itemId) => {
+    if (!isManageMode || sortBy !== "manual" || (!draggedItemId && !touchDraggedItemId)) return;
+    e.preventDefault();
+    
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+    
+    const currentDraggedId = draggedItemId || touchDraggedItemId;
+    if (currentDraggedId === itemId) return;
+    
+    const { position, guideY } = calculateDropPosition(e, e.currentTarget);
+    
+    setDragOverItemId(itemId);
+    setDropPosition(position);
+    setDragInsertGuide(guideY);
+  };
+
+  const handleDragLeave = (e) => {
+    if (!isManageMode || sortBy !== "manual") return;
+    setDragOverItemId(null);
+    setDropPosition(null);
+    setDragInsertGuide(null);
+  };
+
+  // ---------- 【修正点4】透明度リセットを確実に ----------
+  const handleDragEnd = (e) => {
+    if (!isManageMode || sortBy !== "manual") return;
+    
+    setScrollDirection(0);
+    
+    // すべての写真カードの透明度をリセット
+    const allCards = document.querySelectorAll('.photo-card');
+    allCards.forEach(card => {
+      card.style.opacity = '1';
+      card.style.transform = '';
+    });
+    
+    // 特にドラッグ中の要素も明示的にリセット
+    if (draggedItemId) {
+      const elem = document.querySelector(`[data-item-id="${draggedItemId}"]`);
+      if (elem) {
+        elem.style.opacity = '1';
+        elem.style.transform = '';
+      }
+    }
+    if (touchDraggedItemId) {
+      const elem = document.querySelector(`[data-item-id="${touchDraggedItemId}"]`);
+      if (elem) {
+        elem.style.opacity = '1';
+        elem.style.transform = '';
+      }
+    }
+    
+    setIsDragging(false);
+    setDraggedItemId(null);
+    setTouchDraggedItemId(null);
+    setDragOverItemId(null);
+    setDropPosition(null);
+    setDragInsertGuide(null);
+  };
+
+  // アイテム挿入処理
+  const handleDrop = (e, targetItemId) => {
+    if (!isManageMode || sortBy !== "manual") return;
+    
+    const currentDraggedId = draggedItemId || touchDraggedItemId;
+    if (!currentDraggedId) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    setScrollDirection(0);
+    setDragInsertGuide(null);
+    
+    if (currentDraggedId === targetItemId) {
+      // 透明度リセット
+      const allCards = document.querySelectorAll('.photo-card');
+      allCards.forEach(card => {
+        card.style.opacity = '1';
+        card.style.transform = '';
+      });
+      return;
+    }
+    
+    const draggedItem = items.find(item => item.id === currentDraggedId);
+    const targetItem = items.find(item => item.id === targetItemId);
+    
+    if (!draggedItem || !targetItem) return;
+    
+    const currentFiltered = items.filter(i => 
+      (selectedGroup === "ALL" || i.group === selectedGroup) && 
+      (selectedMember === "ALL" || i.member === selectedMember)
+    );
+    
+    const currentSorted = [...currentFiltered].sort((a, b) => (a.order || 0) - (b.order || 0));
+    
+    const draggedIndex = currentSorted.findIndex(item => item.id === currentDraggedId);
+    const targetIndex = currentSorted.findIndex(item => item.id === targetItemId);
+    
+    if (draggedIndex === -1 || targetIndex === -1) return;
+    
+    const newOrderItems = [...currentSorted];
+    newOrderItems.splice(draggedIndex, 1);
+    
+    let insertIndex;
+    if (dropPosition === 'before') {
+      insertIndex = targetIndex;
+    } else if (dropPosition === 'after') {
+      insertIndex = targetIndex + 1;
+    } else {
+      insertIndex = targetIndex + 1;
+    }
+    
+    if (draggedIndex < insertIndex) {
+      insertIndex--;
+    }
+    
+    newOrderItems.splice(insertIndex, 0, draggedItem);
+    
+    const orderMap = new Map();
+    newOrderItems.forEach((item, index) => {
+      orderMap.set(item.id, index);
+    });
+    
+    const updatedItems = items.map(item => {
+      if (orderMap.has(item.id)) {
+        return { ...item, order: orderMap.get(item.id) };
+      }
+      return item;
+    }).sort((a, b) => (a.order || 0) - (b.order || 0));
+    
+    setItems(updatedItems);
+    setDraggedItemId(null);
+    setTouchDraggedItemId(null);
+    setDragOverItemId(null);
+    setDropPosition(null);
+    
+    showError(`「${draggedItem.name}」を${targetItem.name}の${dropPosition === 'before' ? '前' : '後'}に移動しました`);
+    
+    // 透明度リセット
+    const allCards = document.querySelectorAll('.photo-card');
+    allCards.forEach(card => {
+      card.style.opacity = '1';
+      card.style.transform = '';
+    });
+  };
+
+  // 並び順リセット
+  const resetOrder = () => {
+    if (confirm('並び順をリセットして新しい順に戻しますか？')) {
+      const currentItems = items.filter(i => 
+        (selectedGroup === "ALL" || i.group === selectedGroup) && 
+        (selectedMember === "ALL" || i.member === selectedMember)
+      );
+      
+      const sortedByDate = [...currentItems].sort((a, b) => 
+        (b.createdAt || 0) - (a.createdAt || 0)
+      );
+      
+      const orderMap = new Map();
+      sortedByDate.forEach((item, index) => {
+        orderMap.set(item.id, index);
+      });
+      
+      const updatedItems = items.map(item => {
+        if (orderMap.has(item.id)) {
+          return { ...item, order: orderMap.get(item.id) };
+        }
+        return item;
+      }).sort((a, b) => (a.order || 0) - (b.order || 0));
+      
+      setItems(updatedItems);
+      showError('並び順をリセットしました（新しい順）');
+    }
+  };
+
+  const resetAllOrder = () => {
+    if (confirm('すべてのアイテムの並び順を完全にリセットしますか？')) {
+      const sortedItems = [...items].sort((a, b) => 
+        (b.createdAt || 0) - (a.createdAt || 0)
+      );
+      
+      const updatedItems = sortedItems.map((item, index) => ({
+        ...item,
+        order: index
+      }));
+      
+      setItems(updatedItems);
+      showError('すべての並び順をリセットしました');
+    }
+  };
+
+  // CSVインポート等の関数（省略、元のまま）
+  const handleImportCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (selectedGroup === "ALL" || selectedMember === "ALL") { 
+      showError("グループとメンバーを選択してから取り込んでください"); 
+      e.target.value = ""; 
+      return; 
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target.result;
+        
+        const hasTabs = text.includes('\t');
+        const delimiter = hasTabs ? '\t' : ',';
+        
+        console.log(`CSV形式を検出: ${hasTabs ? 'タブ区切り' : 'カンマ区切り'}`);
+        
+        const rows = parseCSV(text, delimiter);
+        console.log(`読み込んだ行数: ${rows.length}`);
+        
+        const newItems = rows.map((row, index) => {
+          if (hasTabs) {
+            return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
+          } else {
+            return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
+          }
+        }).filter(Boolean);
+        
+        console.log(`変換されたアイテム数: ${newItems.length}`);
+        
+        setItems(p => [...p, ...newItems]);
+        showError(`${newItems.length}件取り込みました (${hasTabs ? 'タブ区切り' : 'カンマ区切り'})`);
+      } catch(err) { 
+        console.error("CSV解析エラー:", err);
+        showError("CSV形式が正しくありません: " + err.message); 
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = "";
+  };
+
+  const loadExternalTemplate = async (fileName) => {
+    try {
+      setIsLoading(true);
+      const response = await fetch(fileName);
+      if (!response.ok) {
+        throw new Error(`テンプレートファイル(${fileName})が見つかりません (ステータス: ${response.status})`);
+      }
+      
+      const csvText = await response.text();
+      
+      const hasTabs = csvText.includes('\t');
+      const delimiter = hasTabs ? '\t' : ',';
+      
+      const rows = parseCSV(csvText, delimiter);
+      
+      const newItems = rows.map((row, index) => {
+        if (hasTabs) {
+          return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
+        } else {
+          return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
+        }
+      }).filter(Boolean);
+
+      setItems(p => [...p, ...newItems]);
+      showError(`${newItems.length}件のテンプレートを読み込みました (${fileName})`);
+      setActiveModal(null);
+    } catch (err) {
+      console.error("テンプレート読み込みエラー:", err);
+      showError(`読み込み失敗: ${err.message}`);
+      checkTemplateFiles();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCSVExport = () => {
+    const csvData = items.map(i => [
+      i.group, i.member, i.name, i.yori, i.chuu, i.hiki, i.memo||"", i.thumbnail||"", i.price||"", i.source||"入手先", i.isWish?"1":"0", (i.otherImages||[]).join("|"), i.syori||0, i.schuu||0, i.shiki||0, i.order||0
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csvData], {type:"text/csv;charset=utf-8;"});
+    const a = document.createElement("a"); 
+    a.href = URL.createObjectURL(blob); 
+    a.download="photo_data.csv"; 
+    a.click();
+  };
+
+  const handleTSVExport = () => {
+    const tsvData = items.map(i => {
+      const thumbnail = i.thumbnail || "";
+      const name = i.name || "";
+      const otherImages = (i.otherImages || []).join("\n");
+      return `${thumbnail}\t${name}\t"${otherImages}"`;
+    }).join("\n");
+    
+    const blob = new Blob([tsvData], {type:"text/tab-separated-values;charset=utf-8;"});
+    const a = document.createElement("a"); 
+    a.href = URL.createObjectURL(blob); 
+    a.download="photo_data.tsv"; 
+    a.click();
+  };
+
+  const sortedItems = useMemo(() => {
+    let filtered = items.filter(i => 
+      (selectedGroup === "ALL" || i.group === selectedGroup) && 
+      (selectedMember === "ALL" || i.member === selectedMember) && 
+      (i.name && i.name.toLowerCase().includes(search.toLowerCase())) && 
+      (!showOnlyWish || i.isWish)
+    );
+    
+    return filtered.sort((a, b) => {
+      if (sortBy === "manual") {
+        return (a.order || 0) - (b.order || 0);
+      }
+      
+      const aCount = (a.yori||0)+(a.chuu||0)+(a.hiki||0)+(a.syori||0)+(a.schuu||0)+(a.shiki||0);
+      const bCount = (b.yori||0)+(b.chuu||0)+(b.hiki||0)+(b.syori||0)+(b.schuu||0)+(b.shiki||0);
+      switch (sortBy) {
+        case "name": return (a.name||"").localeCompare(b.name||"", 'ja');
+        case "new": return (b.createdAt || 0) - (a.createdAt || 0);
+        case "old": return (a.createdAt || 0) - (b.createdAt || 0);
+        case "price_high": return (parseInt(b.price)||0) - (parseInt(a.price)||0);
+        case "stock_high": return bCount - aCount;
+        case "comp_first":
+          const aComp = (a.yori>0||a.syori>0) && (a.chuu>0||a.schuu>0) && (a.hiki>0||a.shiki>0);
+          const bComp = (b.yori>0||b.syori>0) && (b.chuu>0||b.schuu>0) && (b.hiki>0||b.shiki>0);
+          return (bComp?1:0) - (aComp?1:0);
+        default: return (b.createdAt || 0) - (a.createdAt || 0);
+      }
+    });
+  }, [items, selectedGroup, selectedMember, search, showOnlyWish, sortBy]);
+
+  const batchAction = (type) => {
+    if (selectedItemIds.length === 0 || !isManageMode) return;
+    if (type === 'delete') {
+      setTargetName(`${selectedItemIds.length}件の選択項目`);
+      setActiveModal('delete_batch');
+    } else if (type === 'wish') {
+      setItems(p => p.map(i => selectedItemIds.includes(i.id) ? { ...i, isWish: true } : i));
+      showError(`${selectedItemIds.length}件を⭐に設定しました`);
+    } else if (type === 'stock') {
+      setItems(p => p.map(i => selectedItemIds.includes(i.id) ? { ...i, yori: (i.yori||0)+1, chuu: (i.chuu||0)+1, hiki: (i.hiki||0)+1 } : i));
+      showError(`${selectedItemIds.length}件の在庫を+1しました`);
+    }
+  };
+
+  const stats = useMemo(() => {
+    const filtered = items.filter(i => (selectedGroup === "ALL" || i.group === selectedGroup) && (selectedMember === "ALL" || i.member === selectedMember));
+    const totalKinds = filtered.length;
+    const totalCount = filtered.reduce((s,i) => s + (parseInt(i.yori)||0) + (parseInt(i.chuu)||0) + (parseInt(i.hiki)||0) + (parseInt(i.syori)||0) + (parseInt(i.schuu)||0) + (parseInt(i.shiki)||0), 0);
+    const totalSlots = totalKinds * 3;
+    let collectedSlots = 0;
+    let completedKinds = 0;
+    filtered.forEach(i => {
+      const hasYori = (i.yori > 0 || i.syori > 0);
+      const hasChuu = (i.chuu > 0 || i.schuu > 0);
+      const hasHiki = (i.hiki > 0 || i.shiki > 0);
+      if (hasYori) collectedSlots++;
+      if (hasChuu) collectedSlots++;
+      if (hasHiki) collectedSlots++;
+      if (hasYori && hasChuu && hasHiki) completedKinds++;
+    });
+    return { totalKinds, totalCount, totalSlots, collectedSlots, completedKinds };
+  }, [items, selectedGroup, selectedMember]);
+
+  const openEditImgModal = (item) => {
+    setEditItemId(item.id);
+    setTempMainUrl(item.thumbnail || "");
+    setTempImages(item.otherImages || []);
+    setActiveModal('edit_img');
+  };
+
+  const saveImages = () => {
+    setItems(p => p.map(it => it.id === editItemId ? { ...it, thumbnail: tempMainUrl, otherImages: tempImages } : it));
+    setActiveModal(null);
+  };
+
+  const handleCacheClear = () => {
+    if(confirm("データをすべて消除して初期状態に戻しますか？\n(この操作は取り消せません)")){
+      localStorage.removeItem(STORAGE_KEY);
+      location.reload();
+    }
+  };
+
+  // スクロール速度ゲージコンポーネント（【修正点7】非表示にするため false && で囲む）
+  const ScrollSpeedGauge = () => {
+    const [speedLevel, setSpeedLevel] = useState(0);
+    
+    useEffect(() => {
+      const updateSpeedLevel = () => {
+        if (scrollDirection === 0) {
+          setSpeedLevel(0);
+          return;
+        }
+        
+        let level = 0;
+        if (Math.abs(scrollDirection) === 1) {
+          level = 30;
+        } else if (Math.abs(scrollDirection) === 2) {
+          level = 60;
+        } else if (Math.abs(scrollDirection) >= 3) {
+          level = 100;
+        }
+        
+        setSpeedLevel(level);
+      };
+      
+      const intervalId = setInterval(updateSpeedLevel, 100);
+      return () => clearInterval(intervalId);
+    }, [scrollDirection]);
+    
+    return (
+      <div className="scroll-speed-gauge">
+        <div 
+          className="scroll-speed-fill" 
+          style={{ height: `${speedLevel}%` }}
+        />
+        <div style={{
+          position: 'absolute',
+          bottom: '-25px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          fontSize: '10px',
+          color: isDarkMode ? '#fff' : '#333',
+          whiteSpace: 'nowrap',
+          fontWeight: 'bold',
+          background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
+          padding: '2px 6px',
+          borderRadius: '10px'
         }}>
-          {errorMsg && <div className="error-toast">⚠️ {errorMsg}</div>}
-          {isLoading && (
-            <div className="loading-overlay">
-              <div className="loading-spinner"></div>
-              <div className="loading-text">同期中...</div>
+          {speedLevel > 0 ? `${Math.round(speedLevel)}%` : '停止'}
+        </div>
+      </div>
+    );
+  };
+
+  // ---------- 【修正点2】スピードコントロールを左上に移動（トップバーの下）----------
+  const SpeedControl = () => (
+    <div className="speed-control" style={{
+      position: 'fixed',
+      top: '80px',        // トップバーの下に配置
+      left: '10px',
+      zIndex: 9996,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '5px',
+      alignItems: 'flex-start'
+    }}>
+      <div style={{
+        fontSize: '10px',
+        color: isDarkMode ? '#fff' : '#333',
+        fontWeight: 'bold',
+        textAlign: 'center',
+        background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
+        padding: '2px 6px',
+        borderRadius: '8px',
+        backdropFilter: 'blur(4px)',
+        whiteSpace: 'nowrap'
+      }}>
+        スクロール速度
+      </div>
+      <div style={{
+        display: 'flex',
+        gap: '2px',
+        background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
+        padding: '4px',
+        borderRadius: '12px',
+        backdropFilter: 'blur(4px)'
+      }}>
+        {[1, 2, 3].map((multiplier) => (
+          <button 
+            key={multiplier}
+            onClick={() => setScrollSpeedMultiplier(multiplier)}
+            style={{
+              padding: '3px 6px',
+              fontSize: '9px',
+              background: scrollSpeedMultiplier === multiplier ? 
+                (multiplier === 1 ? '#2196f3' : multiplier === 2 ? '#4caf50' : '#ff9800') : 
+                'transparent',
+              color: scrollSpeedMultiplier === multiplier ? 'white' : (isDarkMode ? '#ccc' : '#666'),
+              border: '1px solid ' + (isDarkMode ? '#444' : '#ddd'),
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              minWidth: '28px'
+            }}
+          >
+            {multiplier}x
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ログイン前の画面
+  if (!isAuthReady) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a' }}>
+        <div style={{ color: '#fff' }}>読み込み中...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a', gap: 20 }}>
+        <h1 style={{ color: '#fff', fontSize: 24, margin: 0 }}>生写真管理For=Love</h1>
+        <p style={{ color: '#aaa', margin: 0 }}>Googleアカウントでログインしてください</p>
+        <button 
+          onClick={handleGoogleLogin}
+          style={{
+            padding: '12px 32px',
+            fontSize: 16,
+            background: '#4285f4',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 8,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18">
+            <path fill="#fff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+            <path fill="#fff" d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.836.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.96v2.332C2.44 15.983 5.485 18 9.003 18z"/>
+            <path fill="#fff" d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
+            <path fill="#fff" d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.428 0 9.002 0 5.485 0 2.44 2.017.96 4.958L3.967 7.29c.708-2.127 2.692-3.71 5.036-3.71z"/>
+          </svg>
+          Googleでログイン
+        </button>
+        <p style={{ color: '#777', fontSize: 12, marginTop: 20, textAlign: 'center', maxWidth: 300 }}>
+          ※ログインすると、データがクラウドに自動保存され<br />
+          別の端末でも同じデータを利用できます
+        </p>
+      </div>
+    );
+  }
+
+  // メインのアプリ画面（ログイン後）
+  return (
+    <div className={isDarkMode ? "dark-mode" : ""} style={{ 
+      maxWidth: appWidth,
+      margin: '0 auto',
+      minHeight: '100vh',
+      transition: 'max-width 0.3s'
+    }}>
+      {errorMsg && <div className="error-toast">⚠️ {errorMsg}</div>}
+      {isLoading && (
+        <div className="loading-overlay">
+          <div className="loading-spinner"></div>
+          <div className="loading-text">同期中...</div>
+        </div>
+      )}
+      
+      {/* 挿入ガイドライン */}
+      {dragInsertGuide !== null && (
+        <div 
+          className="drag-insert-guide"
+          style={{ top: dragInsertGuide }}
+        />
+      )}
+      
+      {/* スクロールインジケーター */}
+      {scrollDirection !== 0 && (
+        <div className={`scroll-indicator ${scrollDirection === -1 ? 'scroll-up' : 'scroll-down'} ${Math.abs(scrollDirection) >= 2 ? 'turbo' : ''}`}>
+          {scrollDirection === -1 ? '↑ 上にスクロール中 ↑' : '↓ 下にスクロール中 ↓'}
+        </div>
+      )}
+      
+      {/* ドラッグヒント */}
+      {isDragging && (
+        <div className="drag-hint">
+          📍 アイテムを他のアイテムの間に入れて挿入できます
+        </div>
+      )}
+      
+      {/* 高速スクロールコントロール（管理モード＆手動並び替え時のみ表示） */}
+      {isManageMode && sortBy === "manual" && (
+        <>
+          <SpeedControl />
+          {/* 【修正点7】スクロール速度ゲージを非表示（false && でコメントアウト） */}
+          {false && <ScrollSpeedGauge />}
+          
+          {scrollSpeedMultiplier > 1 && (
+            <div className="turbo-hint">
+              🚀 ターボモード: {scrollSpeedMultiplier}x
             </div>
           )}
           
-          <div className={"top-bar"}>
-            <div style={{display:'flex', alignItems:'center', gap:10}}>
-              <h3 style={{margin: 0, fontSize: '16px'}}>生写真管理For=Love</h3>
-              {lastSaved && (
-                <span style={{
-                  fontSize:10, 
-                  color:'#4caf50', 
-                  background:'rgba(76,175,80,0.1)', 
-                  padding:'2px 6px', 
-                  borderRadius:4,
-                  fontWeight: 'bold'
-                }}>
-                  ✓ {lastSaved}
-                </span>
-              )}
-            </div>
-            <div style={{display:'flex', gap:8, alignItems:'center'}}>
-              {/* ユーザー情報（アバターと名前のみ） */}
-              {user && (
-                <div style={{
-                  display:'flex', 
-                  alignItems:'center', 
-                  gap:6, 
-                  fontSize:12,
-                  padding: '4px 8px',
-                  background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
-                  borderRadius: '20px'
-                }}>
-                  <img src={user.photoURL} alt="avatar" style={{
-                    width:24, 
-                    height:24, 
-                    borderRadius:'50%',
-                    border: isDarkMode ? '1px solid #444' : '1px solid #ddd'
-                  }} />
-                  <span style={{
-                    fontWeight: 'bold',
-                    color: isDarkMode ? '#fff' : '#333',
-                    maxWidth: '100px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {user.displayName}
-                  </span>
-                </div>
-              )}
-              <button 
-                onClick={() => setActiveModal('app_settings')}
-                style={{
-                  padding:'6px 12px',
-                  background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
-                  border: isDarkMode ? '1px solid #444' : '1px solid #ddd',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  color: isDarkMode ? '#fff' : '#333'
-                }}
-              >
-                ⚙️ 設定
-              </button>
-              <button 
-                onClick={()=>setIsDarkMode(!isDarkMode)}
-                style={{
-                  padding:'6px 8px',
-                  background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
-                  border: isDarkMode ? '1px solid #444' : '1px solid #ddd',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '16px'
-                }}
-              >
-                {isDarkMode?"☀️":"🌙"}
-              </button>
-            </div>
-          </div>
-
-          <div className="main-layout">
-            <div className="stats-card">
-              <div className="stats-charts-grid">
-                {/* 収集率 */}
-                <div className="stats-box">
-                  <div className="stats-label">収集率</div>
-                  <div className="progress-circle-container">
-                    <div className="progress-circle-bg"></div>
-                    <div 
-                      className="progress-circle" 
-                      style={{
-                        background: `conic-gradient(${isDarkMode ? 'var(--color-primary)' : 'var(--light-primary)'} 0% ${stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}%, transparent ${stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}% 100%)`
-                      }}
-                    ></div>
-                    <div className="progress-circle-mask">
-                      <span className="progress-percentage">{stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}%</span>
-                    </div>
-                  </div>
-                  <div className="stats-fraction">{stats.collectedSlots} / {stats.totalSlots}</div>
-                </div>
-                
-                {/* コンプリート率 */}
-                <div className="stats-box">
-                  <div className="stats-label">コンプリート率</div>
-                  <div className="progress-circle-container">
-                    <div className="progress-circle-bg"></div>
-                    <div 
-                      className="progress-circle" 
-                      style={{
-                        background: `conic-gradient(${isDarkMode ? 'var(--color-success)' : 'var(--light-success)'} 0% ${stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}%, transparent ${stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}% 100%)`
-                      }}
-                    ></div>
-                    <div className="progress-circle-mask">
-                      <span className="progress-percentage">{stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}%</span>
-                    </div>
-                  </div>
-                  <div className="stats-fraction">{stats.completedKinds} / {stats.totalKinds}</div>
-                </div>
-              </div>
-              
-              {/* 統計サマリー（総数表示） */}
-              <div className="stats-summary">
-                <div className="stat-item">
-                  <span className="stat-value">{stats.totalKinds}</span>
-                  <span className="stat-label">総写真数</span>
-                </div>
-                <div className="stat-item">
-                  <span className="stat-value">{stats.collectedSlots}</span>
-                  <span className="stat-label">収集済み</span>
-                </div>
-                <div className="stat-item">
-                  <span className="stat-value">{stats.completedKinds}</span>
-                  <span className="stat-label">コンプリート</span>
-                </div>
-              </div>
-            </div>
-
-            {/* ===== コントロールパネル ===== */}
-            <div className="control-panel">
-              {/* 管理モードトグル */}
-              <div className="control-header">
-                <div>
-                  <strong>管理モード</strong>
-                  {isManageMode && <span className="manage-mode-badge">ON</span>}
-                </div>
-                <button 
-                  className="manage-toggle" 
-                  onClick={() => setIsManageMode(!isManageMode)}
-                  style={{ color: isManageMode ? '#ff5252' : '' }}
-                >
-                  ✏️
-                </button>
-              </div>
-
-              {/* フィルター行 */}
-              <div className="filter-row">
-                <input 
-                  className="search-input" 
-                  placeholder="検索..." 
-                  value={search} 
-                  onChange={e => setSearch(e.target.value)} 
-                />
-                <button 
-                  className={`wish-toggle-btn ${showOnlyWish ? 'active' : ''}`} 
-                  onClick={() => setShowOnlyWish(!showOnlyWish)}
-                >
-                  ⭐ のみ
-                </button>
-                <select 
-                  className="sort-select" 
-                  value={sortBy} 
-                  onChange={e => setSortBy(e.target.value)}
-                >
-                  <option value="new">新しい順</option>
-                  <option value="old">古い順</option>
-                  <option value="name">名前順</option>
-                  <option value="price_high">価格が高い順</option>
-                  <option value="stock_high">在庫が多い順</option>
-                  <option value="comp_first">コンプリート優先</option>
-                </select>
-              </div>
-
-              {/* グループ選択 */}
-              <div className="group-section">
-                <div className="section-title">
-                  <strong>グループ選択</strong>
-                  <button 
-                    className="add-btn" 
-                    onClick={() => setActiveModal('add_group')}
-                  >
-                    +
-                  </button>
-                </div>
-                <ul className="button-list">
-                  <li>
-                    <button 
-                      className={`btn-item ${selectedGroup === 'ALL' ? 'active' : ''}`} 
-                      onClick={() => {
-                        setSelectedGroup('ALL');
-                        setSelectedMember('ALL');
-                      }}
-                    >
-                      ALL
-                    </button>
-                  </li>
-                  {groups.map(g => (
-                    <li key={g.name}>
-                      <button 
-                        className={`btn-item ${selectedGroup === g.name ? 'active' : ''}`} 
-                        onClick={() => {
-                          setSelectedGroup(g.name);
-                          setSelectedMember(g.members.length > 0 ? g.members[0] : 'ALL');
-                        }}
-                      >
-                        {g.name}
-                        {isManageMode && (
-                          <button 
-                            className="btn-delete-small" 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              setTargetName(g.name); 
-                              setActiveModal('delete_group'); 
-                            }}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* メンバー選択 */}
-              <div className="member-section">
-                <div className="section-title">
-                  <strong>メンバー選択</strong>
-                  {selectedGroup !== 'ALL' && selectedGroup && (
-                    <button 
-                      className="add-btn" 
-                      onClick={() => setActiveModal('add_member')}
-                    >
-                      +
-                    </button>
-                  )}
-                </div>
-                <ul className="button-list">
-                  <li>
-                    <button 
-                      className={`btn-item ${selectedMember === 'ALL' ? 'active' : ''}`} 
-                      onClick={() => setSelectedMember('ALL')}
-                    >
-                      ALL
-                    </button>
-                  </li>
-                  {selectedGroup !== 'ALL' && groups.find(g => g.name === selectedGroup)?.members.map(m => (
-                    <li key={m}>
-                      <button 
-                        className={`btn-item ${selectedMember === m ? 'active' : ''}`} 
-                        onClick={() => setSelectedMember(m)}
-                      >
-                        {m}
-                        {isManageMode && (
-                          <button 
-                            className="btn-delete-small" 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              setTargetName(m); 
-                              setActiveModal('delete_member'); 
-                            }}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            {selectedGroup !== "ALL" && selectedMember !== "ALL" && (
-              <button className="add-trigger-btn" onClick={() => setActiveModal('add_photo')}>＋ 生写真を追加</button>
-            )}
-
-            {sortedItems.map(i => {
-              const comp = (i.yori>0||i.syori>0) && (i.chuu>0||i.schuu>0) && (i.hiki>0||i.shiki>0);
-              const isSelected = selectedItemIds.includes(i.id);
-              const isSignExpanded = expandedSignItems.includes(i.id);
-              
-              return (
-                <div key={i.id} className={`photo-card ${comp ? 'is-complete' : ''} ${i.isWish ? 'is-wish' : ''}`} style={{background: (isManageMode && isSelected) ? 'rgba(255, 82, 82, 0.1)' : ''}}>
-                  <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:10}}>
-                    {isManageMode && <input type="checkbox" className="selection-checkbox" checked={isSelected} onChange={() => toggleSelectItem(i.id)} />}
-                    <div className="img-container">
-                      <div className="btn-img-add" onClick={() => openEditImgModal(i)}>＋</div>
-                      <div style={{width:65, cursor:'pointer'}} onClick={() => {
-                        const imgs = [i.thumbnail, ...(i.otherImages||[])].filter(Boolean);
-                        if(imgs.length) setViewer({ images: imgs, index: 0, name: i.name });
-                        else openEditImgModal(i);
-                      }}>
-                        {i.thumbnail ? <img src={i.thumbnail} style={{width:'100%', borderRadius:4}} /> : <div style={{background:'#eee', height:60, borderRadius:4, fontSize:8, textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', color:'#888'}}>画像なし</div>}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="card-content">
-                    <div style={{display:'flex', justifyBetween:'space-between', alignItems:'center'}}>
-                      <div style={{flex: 1, minWidth: 0, display:'flex', alignItems:'center', gap:8}}>
-                        <button className={`wish-toggle ${i.isWish ? 'active' : ''}`} onClick={() => updateItem(i.id, 'isWish', !i.isWish)}>⭐</button>
-                        {editingNameId === i.id ? (
-                          <input 
-                            className="edit-name-input"
-                            autoFocus 
-                            value={i.name} 
-                            onChange={e => updateItem(i.id, 'name', e.target.value)} 
-                            onBlur={() => setEditingNameId(null)}
-                            onKeyDown={e => { if(e.key === 'Enter') setEditingNameId(null); }}
-                          />
-                        ) : (
-                          <span className="name-display" onClick={() => setEditingNameId(i.id)}>
-                            {i.name} {comp && "👍️"}
-                          </span>
-                        )}
-                      </div>
-                      <button onClick={()=>{ setTargetName(i.name); setTargetId(i.id); setActiveModal('delete_photo'); }} style={{color:'#999', border:'none', background:'none', cursor:'pointer'}}>✕</button>
-                    </div>
-                    {/* 通常の寄り・中・引き（常に表示） */}
-                    <div style={{display:'flex', gap:4, flexWrap:'wrap', marginBottom: 8}}>
-                      {[ {k:'yori', l:'寄'}, {k:'chuu', l:'中'}, {k:'hiki', l:'引'} ].map(o => (
-                        <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-stock' : ''}`}>
-                          <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
-                          <button className="btn-qty" onClick={() => updateItem(i.id, o.k, Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
-                          <span className="qty-val">{i[o.k]||0}</span>
-                          <button className="btn-qty" onClick={() => updateItem(i.id, o.k, (parseInt(i[o.k])||0)+1)}>+</button>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    {/* サイン付きカウンター（スマホで折りたたみ） */}
-                    <div className="sign-counters-container">
-                      <button 
-                        className={`sign-counters-toggle ${isSignExpanded ? 'active' : ''}`}
-                        onClick={() => toggleSignCounters(i.id)}
-                      >
-                        サイン付きカウンター
-                      </button>
-                      <div className={`sign-counters-content ${isSignExpanded ? 'expanded' : ''}`}>
-                        {[ {k:'syori', l:'サイン寄'}, {k:'schuu', l:'サイン中'}, {k:'shiki', l:'サイン引'} ].map(o => (
-                          <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-sign' : ''}`}>
-                            <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
-                            <button className="btn-qty" onClick={() => updateItem(i.id, o.k, Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
-                            <span className="qty-val">{i[o.k]||0}</span>
-                            <button className="btn-qty" onClick={() => updateItem(i.id, o.k, (parseInt(i[o.k])||0)+1)}>+</button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="row-inputs" style={{ flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
-                      <select 
-                        className="source-select" 
-                        value={i.source || "入手先"} 
-                        onChange={e => updateItem(i.id, 'source', e.target.value)}
-                        style={{ height: '36px' }} 
-                      >
-                        {SOURCE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                      <input 
-                        className="details-input" 
-                        style={{ flex: '1 1 150px', height: '36px' }} 
-                        placeholder="メモ" 
-                        value={i.memo || ""} 
-                        onChange={e => updateItem(i.id, 'memo', e.target.value)} 
-                      />
-                      <div className="price-wrapper">
-                        <input className="details-input" style={{width:'100%'}} placeholder="価格" 
-                          value={formatWithComma(i.price)} 
-                          onChange={e => updateItem(i.id, 'price', e.target.value.replace(/\D/g,'').slice(0, 7))} />
-                        <span className="currency-unit">円</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {isManageMode && sortedItems.length > 0 && (
-            <div className="selection-bar">
-              <div style={{display:'flex', alignItems:'center', gap:10}}>
-                <input type="checkbox" className="selection-checkbox" checked={selectedItemIds.length > 0 && selectedItemIds.length === sortedItems.length} onChange={(e) => {
-                  if(e.target.checked) setSelectedItemIds(sortedItems.map(it => it.id));
-                  else setSelectedItemIds([]);
-                }} />
-                <span style={{fontSize:12, fontW:'bold'}}>{selectedItemIds.length}件選択中</span>
-              </div>
-              <div style={{display:'flex', gap:8}}>
-                <button className="batch-btn" onClick={() => batchAction('wish')}>一括お気に入り</button>
-                <button className="batch-btn" onClick={() => batchAction('stock')}>すべて+1</button>
-                <button className="batch-btn" style={{background:'#000'}} onClick={() => batchAction('delete')}>削除</button>
-              </div>
+          {scrollDirection !== 0 && (
+            <div className={`speed-indicator ${Math.abs(scrollDirection) >= 2 ? 'turbo' : ''}`}>
+              {Math.abs(scrollDirection) === 1 ? '通常' : 
+               Math.abs(scrollDirection) === 2 ? '高速' : '超高速'}スクロール中
             </div>
           )}
-
-          {viewer && (
-            <div className="lightbox" onClick={() => setViewer(null)}>
-              <div className="lightbox-close">×</div>
-              <img src={viewer.images[viewer.index]} onClick={(e) => { e.stopPropagation(); setViewer({ ...viewer, index: (viewer.index + 1) % viewer.images.length }); }} />
-              <div className="lightbox-info"><strong>{viewer.name}</strong><br/>{viewer.index + 1} / {viewer.images.length}</div>
-            </div>
-          )}
-
-          {activeModal && (
-            <div className="modal-overlay" onClick={()=>setActiveModal(null)}>
-              <div className="modal-content" onClick={e=>e.stopPropagation()}>
-                {activeModal === 'app_settings' && (
-                  <div>
-                    <h3 style={{margin:'0 0 15px 0'}}>設定</h3>
-                    
-                    {/* アカウント情報セクション */}
-                    {user && (
-                      <div style={{
-                        marginBottom: '15px', 
-                        padding: '15px', 
-                        background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                        borderRadius: '12px',
-                        border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                      }}>
-                        <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px'}}>
-                          <img src={user.photoURL} alt="avatar" style={{width:40, height:40, borderRadius:'50%'}} />
-                          <div>
-                            <div style={{fontWeight: 'bold', fontSize: '14px'}}>{user.displayName}</div>
-                            <div style={{fontSize: '11px', color: '#666'}}>{user.email}</div>
-                          </div>
-                        </div>
-                        {lastSaved && (
-                          <div style={{fontSize: '12px', color: '#4caf50', textAlign: 'center'}}>
-                            ✓ 最終保存: {lastSaved}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* クラウド操作セクション */}
-                    <div style={{
-                      marginBottom: '15px', 
-                      padding: '15px', 
-                      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                      borderRadius: '12px',
-                      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                    }}>
-                      <h4 style={{marginTop:0, marginBottom: '10px'}}>クラウド同期</h4>
-                      <div style={{display: 'flex', gap: '8px', marginBottom: '10px'}}>
-                        <button onClick={handleManualSave} style={{
-                          flex: 1,
-                          padding: '10px',
-                          background: '#4caf50',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                          fontWeight: 'bold'
-                        }}>
-                          💾 手動保存
-                        </button>
-                        <button onClick={handleManualLoad} style={{
-                          flex: 1,
-                          padding: '10px',
-                          background: '#2196f3',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                          fontWeight: 'bold'
-                        }}>
-                          🔄 手動読込
-                        </button>
-                      </div>
-                      <p style={{fontSize:'11px', color:'#666', margin:0}}>
-                        データは自動的にクラウドに保存されます。<br/>
-                        別の端末で同じアカウントでログインすると同期されます。
-                      </p>
-                    </div>
-
-                    {/* データ操作セクション */}
-                    <div style={{
-                      marginBottom: '15px', 
-                      padding: '15px', 
-                      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                      borderRadius: '12px',
-                      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                    }}>
-                      <h4 style={{marginTop:0, marginBottom: '10px'}}>データ操作</h4>
-                      <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
-                        <button onClick={handleCSVExport} style={{
-                          padding: '10px',
-                          background: '#ff9800',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                          fontWeight: 'bold'
-                        }}>
-                          📤 CSV出力（カンマ区切り）
-                        </button>
-                        <button onClick={handleTSVExport} style={{
-                          padding: '10px',
-                          background: '#9c27b0',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                          fontWeight: 'bold'
-                        }}>
-                          📤 TSV出力（タブ区切り）
-                        </button>
-                        <label style={{
-                          padding: '10px',
-                          background: '#2196f3',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                          fontWeight: 'bold',
-                          textAlign: 'center'
-                        }}>
-                          📥 CSV/TSV取込
-                          <input type="file" accept=".csv,.tsv,.txt" style={{display:'none'}} onChange={handleImportCSV} />
-                        </label>
-                        
-                        {/* テンプレート選択 - 利用可能なテンプレートがある場合のみ表示 */}
-                        {availableTemplates.length > 0 && (
-                          <div style={{marginTop: '10px'}}>
-                            <div style={{fontSize: '11px', color: '#666', marginBottom: '5px'}}>テンプレートから読み込み ({availableTemplates.length}件):</div>
-                            <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '5px'}}>
-                              {availableTemplates.map(fileName => (
-                                <button 
-                                  key={fileName}
-                                  onClick={() => loadExternalTemplate(fileName)}
-                                  style={{
-                                    padding: '8px',
-                                    background: '#9c27b0',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '11px',
-                                    fontWeight: 'bold',
-                                    textAlign: 'center'
-                                  }}
-                                >
-                                  {fileName.replace('.csv', '')}
-                                </button>
-                              ))}
-                            </div>
-                            <p style={{fontSize: '10px', color: '#666', marginTop: '5px', textAlign: 'center'}}>
-                              ※タブ区切りとカンマ区切りの両方に対応
-                            </p>
-                          </div>
-                        )}
-                        
-                        {/* テンプレートファイルが存在しない場合のメッセージ */}
-                        {availableTemplates.length === 0 && (
-                          <div style={{
-                            marginTop: '10px',
-                            padding: '10px',
-                            background: isDarkMode ? '#333' : '#f5f5f5',
-                            borderRadius: '8px',
-                            textAlign: 'center'
-                          }}>
-                            <p style={{fontSize: '11px', color: '#666', margin: 0}}>
-                              テンプレートファイルが見つかりません。<br/>
-                              テンプレートCSVファイルをサーバーにアップロードしてください。
-                            </p>
-                            <p style={{fontSize: '10px', color: '#888', margin: '5px 0 0 0'}}>
-                              利用可能なファイル名: template.csv, template1.csv, template2.csv, ...
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* 表示設定セクション */}
-                    <div style={{
-                      marginBottom: '15px', 
-                      padding: '15px', 
-                      background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                      borderRadius: '12px',
-                      border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                    }}>
-                      <h4 style={{marginTop:0, marginBottom: '10px'}}>表示設定</h4>
-                      <label style={{fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between'}}>
-                        <span>サイトの幅</span>
-                        <b>{appWidth === '100%' ? 'フル画面' : appWidth}</b>
-                      </label>
-                      
-                      <input 
-                        type="range" 
-                        min="350" 
-                        max="1200" 
-                        step="10"
-                        value={appWidth === '100%' ? 1200 : parseInt(appWidth)} 
-                        onChange={(e) => setAppWidth(`${e.target.value}px`)}
-                        style={{
-                          width: '100%', 
-                          height: '30px', 
-                          cursor: 'pointer',
-                          accentColor: '#2196f3'
-                        }}
-                      />
-
-                      <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-                        <button onClick={() => setAppWidth('400px')} style={quickBtnStyle(isDarkMode)}>スマホ</button>
-                        <button onClick={() => setAppWidth('600px')} style={quickBtnStyle(isDarkMode)}>標準</button>
-                        <button onClick={() => setAppWidth('900px')} style={quickBtnStyle(isDarkMode)}>ワイド</button>
-                        <button onClick={() => setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
-                      </div>
-                    </div>
-                    
-                    {/* 設定リスト */}
-                    <ul className="settings-list">
-                      <li onClick={handleCacheClear}>🗑️ キャッシュ（全データ）削除</li>
-                      <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>📜 規約</li>
-                      <li onClick={() => window.open("https://github.com/Meowx7", "_blank")}>🐱 GitHub</li>
-                      <li onClick={handleLogout} style={{color: '#ff5252', fontWeight: 'bold'}}>🚪 ログアウト</li>
-                      <li style={{color:'#888', cursor:'default', fontSize: '11px', justifyContent: 'center'}}>Version 1.4.5</li>
-                    </ul>
-                    <button onClick={()=>setActiveModal(null)} style={{
-                      width:'100%', 
-                      padding:12, 
-                      background:'#eee', 
-                      border:'none', 
-                      borderRadius:8,
-                      fontWeight: 'bold',
-                      cursor: 'pointer'
-                    }}>
-                      閉じる
-                    </button>
-                  </div>
-                )}
-                {activeModal === 'add_photo' && (
-                  <div>
-                    <h3>新規追加</h3>
-                    <input type="text" placeholder="生写真セット名" id="modal_name" autoFocus />
-                    <button onClick={() => {
-                      const v = document.getElementById("modal_name").value;
-                      if(v) { setItems(p => [{ id: genId(), group: selectedGroup, member: selectedMember, name: v, yori: 0, chuu: 0, hiki: 0, syori: 0, schuu: 0, shiki: 0, isWish: false, createdAt: Date.now(), memo: "", price: "", source: "入手先", thumbnail: "", otherImages: [] }, ...p]); setActiveModal(null); }
-                    }} style={{width:'100%', padding:12, background:'#2196f3', color:'#fff', border:'none', borderRadius:8, marginTop:10}}>追加</button>
-                  </div>
-                )}
-                {activeModal === 'add_group' && (
-                  <div>
-                    <h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{
-                      if(e.key==='Enter'){
-                        const val = e.target.value.trim();
-                        if(!val) return showError("グループ名を入力してください");
-                        setGroups(p=>[...p,{name:val,members:[]}]); setActiveModal(null); 
-                      }
-                    }} />
-                  </div>
-                )}
-                {activeModal === 'add_member' && (
-                  <div>
-                    <h3>メンバー追加</h3><input type="text" autoFocus onKeyDown={e=>{
-                      if(e.key==='Enter'){
-                        const val = e.target.value.trim();
-                        if(!val) return showError("名前を入力してください");
-                        setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:[...g.members,val]}:g)); setActiveModal(null);
-                      }
-                    }} />
-                  </div>
-                )}
-                {activeModal === 'edit_img' && (
-                  <div>
-                    <h3>画像管理</h3>
-                    <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:10}}>
-                      {tempMainUrl && <div style={{position:'relative'}}><img src={tempMainUrl} style={{width:'100%', height:60, objectFit:'cover', borderRadius:4}}/><button onClick={()=>setTempMainUrl("")} style={{position:'absolute', top:0, right:0, background:'red', color:'white', border:'none'}}>×</button></div>}
-                      {tempImages.map((u,idx)=><div key={idx} style={{position:'relative'}}><img src={u} style={{width:'100%', height:60, objectFit:'cover', borderRadius:4}}/><button onClick={()=>setTempImages(p=>p.filter((_,i)=>i!==idx))} style={{position:'absolute', top:0, right:0, background:'red', color:'white', border:'none'}}>×</button></div>)}
-                    </div>
-                    <label style={{display:'block', padding:10, background:'#2196f3', color:'white', textAlign:'center', borderRadius:8, cursor:'pointer', marginBottom:10}}>
-                      端末から選択<input type="file" multiple style={{display:'none'}} onChange={async(e)=>{
-                        const files = Array.from(e.target.files);
-                        for(const f of files){ const c = await compressImage(f); if(!tempMainUrl) setTempMainUrl(c); else setTempImages(p=>[...p,c]); }
-                      }}/>
-                    </label>
-                    <input type="text" placeholder="URLを貼り付けてEnter" onKeyDown={e=>{ if(e.key==='Enter' && e.target.value){ const urls = e.target.value.split(/[, \n]+/).filter(Boolean); urls.forEach(u => { if(!tempMainUrl) setTempMainUrl(u); else setTempImages(p=>[...p,u]); }); e.target.value=""; } }}/>
-                    <button onClick={saveImages} style={{width:'100%', padding:12, background:'#4caf50', color:'#fff', border:'none', borderRadius:8, marginTop:10}}>保存</button>
-                  </div>
-                )}
-                {activeModal === 'delete_group' && (
-                  <div><h3>「{targetName}」を削除？</h3>
-                    <button onClick={()=>{
-                      setItems(p=>p.filter(i=>i.group!==targetName)); setGroups(p=>p.filter(g=>g.name!==targetName));
-                      if(selectedGroup===targetName) {setSelectedGroup("ALL"); setSelectedMember("ALL");} setActiveModal(null);
-                    }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
-                  </div>
-                )}
-                {activeModal === 'delete_member' && (
-                  <div><h3>「{targetName}」を削除？</h3>
-                    <button onClick={()=>{
-                      setItems(p=>p.filter(i=>i.member!==targetName)); setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:g.members.filter(m=>m!==targetName)}:g));
-                      if(selectedMember===targetName) setSelectedMember("ALL"); setActiveModal(null);
-                    }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
-                  </div>
-                )}
-                {activeModal === 'delete_photo' && (
-                  <div><h3>「{targetName}」を削除？</h3>
-                    <button onClick={()=>{
-                      setItems(p=>p.filter(i=>i.id!==targetId));
-                      setActiveModal(null);
-                    }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
-                  </div>
-                )}
-                {activeModal === 'delete_batch' && (
-                  <div><h3>{targetName}を削除？</h3>
-                    <button onClick={()=>{
-                      setItems(p => p.filter(i => !selectedItemIds.includes(i.id)));
-                      setSelectedItemIds([]);
-                      setActiveModal(null);
-                    }} style={{width:'100%', padding:12, background:'#000', color:'#fff', border:'none', borderRadius:8}}>一括削除を実行</button>
-                  </div>
-                )}
-              </div>
-            </div>
+        </>
+      )}
+      
+      <div className={"top-bar"}>
+        <div style={{display:'flex', alignItems:'center', gap:10}}>
+          <h3 style={{margin: 0, fontSize: '16px'}}>生写真管理For=Love</h3>
+          {lastSaved && (
+            <span style={{
+              fontSize:10, 
+              color:'#4caf50', 
+              background:'rgba(76,175,80,0.1)', 
+              padding:'2px 6px', 
+              borderRadius:4,
+              fontWeight: 'bold'
+            }}>
+              ✓ {lastSaved}
+            </span>
           )}
         </div>
-      );
-    }
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        <div style={{display:'flex', gap:8, alignItems:'center'}}>
+          {user && (
+            <div style={{
+              display:'flex', 
+              alignItems:'center', 
+              gap:6, 
+              fontSize:12,
+              padding: '4px 8px',
+              background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
+              borderRadius: '20px'
+            }}>
+              <img src={user.photoURL} alt="avatar" style={{
+                width:24, 
+                height:24, 
+                borderRadius:'50%',
+                border: isDarkMode ? '1px solid #444' : '1px solid #ddd'
+              }} />
+              <span style={{
+                fontWeight: 'bold',
+                color: isDarkMode ? '#fff' : '#333',
+                maxWidth: '100px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {user.displayName}
+              </span>
+            </div>
+          )}
+          <button 
+            onClick={() => setActiveModal('app_settings')}
+            style={{
+              padding:'6px 12px',
+              background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
+              border: isDarkMode ? '1px solid #444' : '1px solid #ddd',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              color: isDarkMode ? '#fff' : '#333'
+            }}
+          >
+          ⚙️
+          </button>
+          <button 
+            onClick={()=>setIsDarkMode(!isDarkMode)}
+            style={{
+              padding:'6px 8px',
+              background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
+              border: isDarkMode ? '1px solid #444' : '1px solid #ddd',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '16px'
+            }}
+          >
+            {isDarkMode?"☀️":"🌙"}
+          </button>
+        </div>
+      </div>
+
+      <div className="main-layout">
+        {isManageMode && sortBy === "manual" && (
+          <div className="sort-helper">
+            <span className="sort-hint">
+              ✨ 写真カードをドラッグして自由に並び替えられます
+              <br />
+              <small>アイテムの間に入れると挿入できます</small>
+            </span>
+            <button 
+              className="reset-order-btn"
+              onClick={resetOrder}
+              title="並び順をリセット"
+            >
+              🔄 現在の並び順をリセット
+            </button>
+          </div>
+        )}
+        
+        <div className="stats-card">
+          <div className="stats-charts-grid">
+            <div className="stats-box">
+              <div className="stats-label">収集率</div>
+              <div className="progress-circle-container">
+                <div className="progress-circle-bg"></div>
+                <div 
+                  className="progress-circle" 
+                  style={{
+                    background: `conic-gradient(${isDarkMode ? 'var(--color-primary)' : 'var(--light-primary)'} 0% ${stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}%, transparent ${stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}% 100%)`
+                  }}
+                ></div>
+                <div className="progress-circle-mask">
+                  <span className="progress-percentage">{stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}%</span>
+                </div>
+              </div>
+              <div className="stats-fraction">{stats.collectedSlots} / {stats.totalSlots}</div>
+            </div>
+            
+            <div className="stats-box">
+              <div className="stats-label">コンプリート率</div>
+              <div className="progress-circle-container">
+                <div className="progress-circle-bg"></div>
+                <div 
+                  className="progress-circle" 
+                  style={{
+                    background: `conic-gradient(${isDarkMode ? 'var(--color-success)' : 'var(--light-success)'} 0% ${stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}%, transparent ${stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}% 100%)`
+                  }}
+                ></div>
+                <div className="progress-circle-mask">
+                  <span className="progress-percentage">{stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}%</span>
+                </div>
+              </div>
+              <div className="stats-fraction">{stats.completedKinds} / {stats.totalKinds}</div>
+            </div>
+          </div>
+          
+          <div className="stats-summary">
+            <div className="stat-item">
+              <span className="stat-value">{stats.totalKinds}</span>
+              <span className="stat-label">総写真数</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-value">{stats.collectedSlots}</span>
+              <span className="stat-label">収集済み</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-value">{stats.completedKinds}</span>
+              <span className="stat-label">コンプリート</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="control-panel">
+          <div className="control-header">
+            <div>
+              <strong>管理モード</strong>
+              {isManageMode && <span className="manage-mode-badge">ON</span>}
+            </div>
+            <button 
+              className="manage-toggle" 
+              onClick={() => setIsManageMode(!isManageMode)}
+              style={{ color: isManageMode ? '#ff5252' : '' }}
+            >
+              ✏️
+            </button>
+          </div>
+
+          <div className="filter-row">
+            <input 
+              className="search-input" 
+              placeholder="検索..." 
+              value={search} 
+              onChange={e => setSearch(e.target.value)} 
+            />
+            <button 
+              className={`wish-toggle-btn ${showOnlyWish ? 'active' : ''}`} 
+              onClick={() => setShowOnlyWish(!showOnlyWish)}
+            >
+              ⭐ のみ
+            </button>
+            <select 
+              className="sort-select" 
+              value={sortBy} 
+              onChange={e => setSortBy(e.target.value)}
+            >
+              <option value="manual">手動並び替え</option>
+              <option value="new">新しい順</option>
+              <option value="old">古い順</option>
+              <option value="name">名前順</option>
+              <option value="price_high">価格が高い順</option>
+              <option value="stock_high">在庫が多い順</option>
+              <option value="comp_first">コンプリート優先</option>
+            </select>
+          </div>
+
+          <div className="group-section">
+            <div className="section-title">
+              <strong>グループ選択</strong>
+              <button 
+                className="add-btn" 
+                onClick={() => setActiveModal('add_group')}
+              >
+                +
+              </button>
+            </div>
+            <ul className="button-list">
+              <li>
+                <button 
+                  className={`btn-item ${selectedGroup === 'ALL' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setSelectedGroup('ALL');
+                    setSelectedMember('ALL');
+                  }}
+                >
+                  ALL
+                </button>
+              </li>
+              {groups.map(g => (
+                <li key={g.name}>
+                  <button 
+                    className={`btn-item ${selectedGroup === g.name ? 'active' : ''}`} 
+                    onClick={() => {
+                      setSelectedGroup(g.name);
+                      setSelectedMember(g.members.length > 0 ? g.members[0] : 'ALL');
+                    }}
+                  >
+                    {g.name}
+                    {isManageMode && (
+                      <button 
+                        className="btn-delete-small" 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setTargetName(g.name); 
+                          setActiveModal('delete_group'); 
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="member-section">
+            <div className="section-title">
+              <strong>メンバー選択</strong>
+              {selectedGroup !== 'ALL' && selectedGroup && (
+                <button 
+                  className="add-btn" 
+                  onClick={() => setActiveModal('add_member')}
+                >
+                  +
+                </button>
+              )}
+            </div>
+            <ul className="button-list">
+              <li>
+                <button 
+                  className={`btn-item ${selectedMember === 'ALL' ? 'active' : ''}`} 
+                  onClick={() => setSelectedMember('ALL')}
+                >
+                  ALL
+                </button>
+              </li>
+              {selectedGroup !== 'ALL' && groups.find(g => g.name === selectedGroup)?.members.map(m => (
+                <li key={m}>
+                  <button 
+                    className={`btn-item ${selectedMember === m ? 'active' : ''}`} 
+                    onClick={() => setSelectedMember(m)}
+                  >
+                    {m}
+                    {isManageMode && (
+                      <button 
+                        className="btn-delete-small" 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setTargetName(m); 
+                          setActiveModal('delete_member'); 
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {selectedGroup !== "ALL" && selectedMember !== "ALL" && (
+          <button className="add-trigger-btn" onClick={() => setActiveModal('add_photo')}>＋ 生写真を追加</button>
+        )}
+
+        {sortedItems.map(i => {
+          const comp = (i.yori>0||i.syori>0) && (i.chuu>0||i.schuu>0) && (i.hiki>0||i.shiki>0);
+          const isSelected = selectedItemIds.includes(i.id);
+          const isSignExpanded = expandedSignItems.includes(i.id);
+          const isDragged = draggedItemId === i.id || touchDraggedItemId === i.id;
+          const isDragOver = dragOverItemId === i.id;
+          
+          return (
+            <div 
+              key={i.id} 
+              data-item-id={i.id}
+              className={`photo-card ${comp ? 'is-complete' : ''} ${i.isWish ? 'is-wish' : ''} ${isDragged ? 'is-dragging' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragOver && dropPosition ? `drop-${dropPosition}` : ''}`}
+              style={{background: (isManageMode && isSelected) ? 'rgba(255, 82, 82, 0.1)' : ''}}
+              draggable={isManageMode && sortBy === "manual"}
+              onDragStart={(e) => handleDragStart(e, i.id)}
+              onDragOver={(e) => handleDragOver(e, i.id)}
+              onDragLeave={handleDragLeave}
+              onDragEnd={handleDragEnd}
+              onDrop={(e) => handleDrop(e, i.id)}
+              // ---------- 【修正点5】タッチイベント完全対応 ----------
+              onTouchStart={(e) => handleTouchStart(e, i.id)}
+              onTouchMove={(e) => handleTouchMove(e, i.id)}
+              onTouchEnd={(e) => handleTouchEnd(e, i.id)}
+              onTouchCancel={(e) => handleTouchEnd(e, i.id)}
+            >
+              {/* ドラッグハンドル：タッチ操作用に onTouchStart も追加 */}
+              {isManageMode && sortBy === "manual" && (
+                <div 
+                  className="drag-handle" 
+                  title="ドラッグして並び替え"
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                    handleTouchStart(e, i.id);
+                  }}
+                >
+                  ⋮⋮
+                </div>
+              )}
+              
+              <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:10}}>
+                {isManageMode && <input type="checkbox" className="selection-checkbox" checked={isSelected} onChange={() => toggleSelectItem(i.id)} />}
+                <div className="img-container">
+                  <div className="btn-img-add" onClick={() => openEditImgModal(i)}>＋</div>
+                  <div style={{width:65, cursor:'pointer'}} onClick={() => {
+                    const imgs = [i.thumbnail, ...(i.otherImages||[])].filter(Boolean);
+                    if(imgs.length) setViewer({ images: imgs, index: 0, name: i.name });
+                    else openEditImgModal(i);
+                  }}>
+                    {i.thumbnail ? <img src={i.thumbnail} style={{width:'100%', borderRadius:4}} /> : <div style={{background:'#eee', height:60, borderRadius:4, fontSize:8, textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', color:'#888'}}>画像なし</div>}
+                  </div>
+                </div>
+              </div>
+              <div className="card-content">
+                <div style={{display:'flex', justifyBetween:'space-between', alignItems:'center'}}>
+                  <div style={{flex: 1, minWidth: 0, display:'flex', alignItems:'center', gap:8}}>
+                    <button className={`wish-toggle ${i.isWish ? 'active' : ''}`} onClick={() => updateItem(i.id, 'isWish', !i.isWish)}>⭐</button>
+                    {editingNameId === i.id ? (
+                      <input 
+                        className="edit-name-input"
+                        autoFocus 
+                        value={i.name} 
+                        onChange={e => updateItem(i.id, 'name', e.target.value)} 
+                        onBlur={() => setEditingNameId(null)}
+                        onKeyDown={e => { if(e.key === 'Enter') setEditingNameId(null); }}
+                      />
+                    ) : (
+                      <span className="name-display" onClick={() => setEditingNameId(i.id)}>
+                        {i.name} {comp && "👍️"}
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={()=>{ setTargetName(i.name); setTargetId(i.id); setActiveModal('delete_photo'); }} style={{color:'#999', border:'none', background:'none', cursor:'pointer'}}>✕</button>
+                </div>
+                
+                <div style={{display:'flex', gap:4, flexWrap:'wrap', marginBottom: 8}}>
+                  {[ {k:'yori', l:'寄'}, {k:'chuu', l:'中'}, {k:'hiki', l:'引'} ].map(o => (
+                    <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-stock' : ''}`}>
+                      <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
+                      <button className="btn-qty" onClick={() => updateItem(i.id, o.k, Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
+                      <span className="qty-val">{i[o.k]||0}</span>
+                      <button className="btn-qty" onClick={() => updateItem(i.id, o.k, (parseInt(i[o.k])||0)+1)}>+</button>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="sign-counters-container">
+                  <button 
+                    className={`sign-counters-toggle ${isSignExpanded ? 'active' : ''}`}
+                    onClick={() => toggleSignCounters(i.id)}
+                  >
+                    サイン付きカウンター
+                  </button>
+                  <div className={`sign-counters-content ${isSignExpanded ? 'expanded' : ''}`}>
+                    {[ {k:'syori', l:'サイン寄'}, {k:'schuu', l:'サイン中'}, {k:'shiki', l:'サイン引'} ].map(o => (
+                      <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-sign' : ''}`}>
+                        <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
+                        <button className="btn-qty" onClick={() => updateItem(i.id, o.k, Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
+                        <span className="qty-val">{i[o.k]||0}</span>
+                        <button className="btn-qty" onClick={() => updateItem(i.id, o.k, (parseInt(i[o.k])||0)+1)}>+</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="row-inputs" style={{ flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+                  <select 
+                    className="source-select" 
+                    value={i.source || "入手先"} 
+                    onChange={e => updateItem(i.id, 'source', e.target.value)}
+                    style={{ height: '36px' }} 
+                  >
+                    {SOURCE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                  <input 
+                    className="details-input" 
+                    style={{ flex: '1 1 150px', height: '36px' }} 
+                    placeholder="メモ" 
+                    value={i.memo || ""} 
+                    onChange={e => updateItem(i.id, 'memo', e.target.value)} 
+                  />
+                  <div className="price-wrapper">
+                    <input className="details-input" style={{width:'100%'}} placeholder="価格" 
+                      value={formatWithComma(i.price)} 
+                      onChange={e => updateItem(i.id, 'price', e.target.value.replace(/\D/g,'').slice(0, 7))} />
+                    <span className="currency-unit">円</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {isManageMode && sortedItems.length > 0 && (
+        <div className="selection-bar">
+          <div style={{display:'flex', alignItems:'center', gap:10}}>
+            <input type="checkbox" className="selection-checkbox" checked={selectedItemIds.length > 0 && selectedItemIds.length === sortedItems.length} onChange={(e) => {
+              if(e.target.checked) setSelectedItemIds(sortedItems.map(it => it.id));
+              else setSelectedItemIds([]);
+            }} />
+            <span style={{fontSize:12, fontW:'bold'}}>{selectedItemIds.length}件選択中</span>
+          </div>
+          <div style={{display:'flex', gap:8}}>
+            <button className="batch-btn" onClick={() => batchAction('wish')}>一括お気に入り</button>
+            <button className="batch-btn" onClick={() => batchAction('stock')}>すべて+1</button>
+            <button className="batch-btn" style={{background:'#000'}} onClick={() => batchAction('delete')}>削除</button>
+          </div>
+        </div>
+      )}
+
+      {viewer && (
+        <div className="lightbox" onClick={() => setViewer(null)}>
+          <div className="lightbox-close">×</div>
+          <img src={viewer.images[viewer.index]} onClick={(e) => { e.stopPropagation(); setViewer({ ...viewer, index: (viewer.index + 1) % viewer.images.length }); }} />
+          <div className="lightbox-info"><strong>{viewer.name}</strong><br/>{viewer.index + 1} / {viewer.images.length}</div>
+        </div>
+      )}
+
+      {activeModal && (
+        <div className="modal-overlay" onClick={()=>setActiveModal(null)}>
+          <div className="modal-content" onClick={e=>e.stopPropagation()}>
+            {activeModal === 'app_settings' && (
+              <div>
+                <h3 style={{margin:'0 0 15px 0'}}>設定</h3>
+                
+                {user && (
+                  <div style={{
+                    marginBottom: '15px', 
+                    padding: '15px', 
+                    background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                    borderRadius: '12px',
+                    border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                  }}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px'}}>
+                      <img src={user.photoURL} alt="avatar" style={{width:40, height:40, borderRadius:'50%'}} />
+                      <div>
+                        <div style={{fontWeight: 'bold', fontSize: '14px'}}>{user.displayName}</div>
+                        <div style={{fontSize: '11px', color: '#666'}}>{user.email}</div>
+                      </div>
+                    </div>
+                    {lastSaved && (
+                      <div style={{fontSize: '12px', color: '#4caf50', textAlign: 'center'}}>
+                        ✓ 最終保存: {lastSaved}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{
+                  marginBottom: '15px', 
+                  padding: '15px', 
+                  background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                  borderRadius: '12px',
+                  border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                }}>
+                  <h4 style={{marginTop:0, marginBottom: '10px'}}>クラウド同期</h4>
+                  <div style={{display: 'flex', gap: '8px', marginBottom: '10px'}}>
+                    <button onClick={handleManualSave} style={{
+                      flex: 1,
+                      padding: '10px',
+                      background: '#4caf50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      💾 手動保存
+                    </button>
+                    <button onClick={handleManualLoad} style={{
+                      flex: 1,
+                      padding: '10px',
+                      background: '#2196f3',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      🔄 手動読込
+                    </button>
+                  </div>
+                  <p style={{fontSize:'11px', color:'#666', margin:0}}>
+                    データは自動的にクラウドに保存されます。<br/>
+                    別の端末で同じアカウントでログインすると同期されます。
+                  </p>
+                </div>
+
+                <div style={{
+                  marginBottom: '15px', 
+                  padding: '15px', 
+                  background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                  borderRadius: '12px',
+                  border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                }}>
+                  <h4 style={{marginTop:0, marginBottom: '10px'}}>データ操作</h4>
+                  <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                    <button onClick={handleCSVExport} style={{
+                      padding: '10px',
+                      background: '#ff9800',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      📤 CSV出力（カンマ区切り）
+                    </button>
+                    <button onClick={handleTSVExport} style={{
+                      padding: '10px',
+                      background: '#9c27b0',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      📤 TSV出力（タブ区切り）
+                    </button>
+                    <label style={{
+                      padding: '10px',
+                      background: '#2196f3',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      textAlign: 'center'
+                    }}>
+                      📥 CSV/TSV取込
+                      <input type="file" accept=".csv,.tsv,.txt" style={{display:'none'}} onChange={handleImportCSV} />
+                    </label>
+                    
+                    {availableTemplates.length > 0 && (
+                      <div style={{marginTop: '10px'}}>
+                        <div style={{fontSize: '11px', color: '#666', marginBottom: '5px'}}>テンプレートから読み込み ({availableTemplates.length}件):</div>
+                        <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '5px'}}>
+                          {availableTemplates.map(fileName => (
+                            <button 
+                              key={fileName}
+                              onClick={() => loadExternalTemplate(fileName)}
+                              style={{
+                                padding: '8px',
+                                background: '#9c27b0',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontSize: '11px',
+                                fontWeight: 'bold',
+                                textAlign: 'center'
+                              }}
+                            >
+                              {fileName.replace('.csv', '')}
+                            </button>
+                          ))}
+                        </div>
+                        <p style={{fontSize: '10px', color: '#666', marginTop: '5px', textAlign: 'center'}}>
+                          ※タブ区切りとカンマ区切りの両方に対応
+                        </p>
+                      </div>
+                    )}
+                    
+                    {availableTemplates.length === 0 && (
+                      <div style={{
+                        marginTop: '10px',
+                        padding: '10px',
+                        background: isDarkMode ? '#333' : '#f5f5f5',
+                        borderRadius: '8px',
+                        textAlign: 'center'
+                      }}>
+                        <p style={{fontSize: '11px', color: '#666', margin: 0}}>
+                          テンプレートファイルが見つかりません。<br/>
+                          テンプレートCSVファイルをサーバーにアップロードしてください。
+                        </p>
+                        <p style={{fontSize: '10px', color: '#888', margin: '5px 0 0 0'}}>
+                          利用可能なファイル名: template.csv, template1.csv, template2.csv, ...
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{
+                  marginBottom: '15px', 
+                  padding: '15px', 
+                  background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
+                  borderRadius: '12px',
+                  border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
+                }}>
+                  <h4 style={{marginTop:0, marginBottom: '10px'}}>表示設定</h4>
+                  <label style={{fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between'}}>
+                    <span>サイトの幅</span>
+                    <b>{appWidth === '100%' ? 'フル画面' : appWidth}</b>
+                  </label>
+                  
+                  <input 
+                    type="range" 
+                    min="350" 
+                    max="1200" 
+                    step="10"
+                    value={appWidth === '100%' ? 1200 : parseInt(appWidth)} 
+                    onChange={(e) => setAppWidth(`${e.target.value}px`)}
+                    style={{
+                      width: '100%', 
+                      height: '30px', 
+                      cursor: 'pointer',
+                      accentColor: '#2196f3'
+                    }}
+                  />
+
+                  <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
+                    <button onClick={() => setAppWidth('400px')} style={quickBtnStyle(isDarkMode)}>スマホ</button>
+                    <button onClick={() => setAppWidth('600px')} style={quickBtnStyle(isDarkMode)}>標準</button>
+                    <button onClick={() => setAppWidth('900px')} style={quickBtnStyle(isDarkMode)}>ワイド</button>
+                    <button onClick={() => setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
+                  </div>
+                </div>
+                
+                <ul className="settings-list">
+                  <li onClick={resetAllOrder} style={{color: '#ff9800', fontWeight: 'bold'}}>🔄 すべての並び順をリセット</li>
+                  <li onClick={handleCacheClear}>🗑️ キャッシュ（全データ）削除</li>
+                  <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>📜 規約</li>
+                  <li onClick={() => window.open("https://github.com/Meowx7", "_blank")}>🐱 GitHub</li>
+                  <li onClick={handleLogout} style={{color: '#ff5252', fontWeight: 'bold'}}>🚪 ログアウト</li>
+                  <li style={{color:'#888', cursor:'default', fontSize: '11px', justifyContent: 'center'}}>Version 1.6.1</li>
+                </ul>
+                <button onClick={()=>setActiveModal(null)} style={{
+                  width:'100%', 
+                  padding:12, 
+                  background:'#eee', 
+                  border:'none', 
+                  borderRadius:8,
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}>
+                  閉じる
+                </button>
+              </div>
+            )}
+            {activeModal === 'add_photo' && (
+              <div>
+                <h3>新規追加</h3>
+                <input type="text" placeholder="生写真セット名" id="modal_name" autoFocus />
+                <button onClick={() => {
+                  const v = document.getElementById("modal_name").value;
+                  if(v) { 
+                    const newItem = { 
+                      id: genId(), 
+                      group: selectedGroup, 
+                      member: selectedMember, 
+                      name: v, 
+                      yori: 0, 
+                      chuu: 0, 
+                      hiki: 0, 
+                      syori: 0, 
+                      schuu: 0, 
+                      shiki: 0, 
+                      isWish: false, 
+                      createdAt: Date.now(), 
+                      memo: "", 
+                      price: "", 
+                      source: "入手先", 
+                      thumbnail: "", 
+                      otherImages: [],
+                      order: items.length
+                    }; 
+                    setItems(p => [...p, newItem]); 
+                    setActiveModal(null); 
+                  }
+                }} style={{width:'100%', padding:12, background:'#2196f3', color:'#fff', border:'none', borderRadius:8, marginTop:10}}>追加</button>
+              </div>
+            )}
+            {activeModal === 'add_group' && (
+              <div>
+                <h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{
+                  if(e.key==='Enter'){
+                    const val = e.target.value.trim();
+                    if(!val) return showError("グループ名を入力してください");
+                    setGroups(p=>[...p,{name:val,members:[]}]); setActiveModal(null); 
+                  }
+                }} />
+              </div>
+            )}
+            {activeModal === 'add_member' && (
+              <div>
+                <h3>メンバー追加</h3><input type="text" autoFocus onKeyDown={e=>{
+                  if(e.key==='Enter'){
+                    const val = e.target.value.trim();
+                    if(!val) return showError("名前を入力してください");
+                    setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:[...g.members,val]}:g)); setActiveModal(null);
+                  }
+                }} />
+              </div>
+            )}
+            {activeModal === 'edit_img' && (
+              <div>
+                <h3>画像管理</h3>
+                <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:10}}>
+                  {tempMainUrl && <div style={{position:'relative'}}><img src={tempMainUrl} style={{width:'100%', height:60, objectFit:'cover', borderRadius:4}}/><button onClick={()=>setTempMainUrl("")} style={{position:'absolute', top:0, right:0, background:'red', color:'white', border:'none'}}>×</button></div>}
+                  {tempImages.map((u,idx)=><div key={idx} style={{position:'relative'}}><img src={u} style={{width:'100%', height:60, objectFit:'cover', borderRadius:4}}/><button onClick={()=>setTempImages(p=>p.filter((_,i)=>i!==idx))} style={{position:'absolute', top:0, right:0, background:'red', color:'white', border:'none'}}>×</button></div>)}
+                </div>
+                <label style={{display:'block', padding:10, background:'#2196f3', color:'white', textAlign:'center', borderRadius:8, cursor:'pointer', marginBottom:10}}>
+                  端末から選択<input type="file" multiple style={{display:'none'}} onChange={async(e)=>{
+                    const files = Array.from(e.target.files);
+                    for(const f of files){ const c = await compressImage(f); if(!tempMainUrl) setTempMainUrl(c); else setTempImages(p=>[...p,c]); }
+                  }}/>
+                </label>
+                <input type="text" placeholder="URLを貼り付けてEnter" onKeyDown={e=>{ if(e.key==='Enter' && e.target.value){ const urls = e.target.value.split(/[, \n]+/).filter(Boolean); urls.forEach(u => { if(!tempMainUrl) setTempMainUrl(u); else setTempImages(p=>[...p,u]); }); e.target.value=""; } }}/>
+                <button onClick={saveImages} style={{width:'100%', padding:12, background:'#4caf50', color:'#fff', border:'none', borderRadius:8, marginTop:10}}>保存</button>
+              </div>
+            )}
+            {activeModal === 'delete_group' && (
+              <div><h3>「{targetName}」を削除？</h3>
+                <button onClick={()=>{
+                  setItems(p=>p.filter(i=>i.group!==targetName)); setGroups(p=>p.filter(g=>g.name!==targetName));
+                  if(selectedGroup===targetName) {setSelectedGroup("ALL"); setSelectedMember("ALL");} setActiveModal(null);
+                }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
+              </div>
+            )}
+            {activeModal === 'delete_member' && (
+              <div><h3>「{targetName}」を削除？</h3>
+                <button onClick={()=>{
+                  setItems(p=>p.filter(i=>i.member!==targetName)); setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:g.members.filter(m=>m!==targetName)}:g));
+                  if(selectedMember===targetName) setSelectedMember("ALL"); setActiveModal(null);
+                }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
+              </div>
+            )}
+            {activeModal === 'delete_photo' && (
+              <div><h3>「{targetName}」を削除？</h3>
+                <button onClick={()=>{
+                  setItems(p=>p.filter(i=>i.id!==targetId));
+                  setActiveModal(null);
+                }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
+              </div>
+            )}
+            {activeModal === 'delete_batch' && (
+              <div><h3>{targetName}を削除？</h3>
+                <button onClick={()=>{
+                  setItems(p => p.filter(i => !selectedItemIds.includes(i.id)));
+                  setSelectedItemIds([]);
+                  setActiveModal(null);
+                }} style={{width:'100%', padding:12, background:'#000', color:'#fff', border:'none', borderRadius:8}}>一括削除を実行</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
