@@ -9,9 +9,10 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
+  <!-- スタイルシート（後述の追加CSSをstyle.cssに必ず追記してください） -->
   <link rel="stylesheet" href="style.css" />
   
-  <!-- FirebaseとGoogleログイン機能を追加 -->
+  <!-- FirebaseとGoogleログイン -->
   <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
   import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -332,7 +333,7 @@ function App() {
   // 最新のマウス位置を追跡するref
   const lastMousePosition = useRef({ x: 0, y: 0 });
   
-  // タッチイベント用の状態（既存）
+  // タッチイベント用の状態（スマホ）
   const [touchStartY, setTouchStartY] = useState(null);
   const [touchStartTime, setTouchStartTime] = useState(null);
   const [touchDraggedItemId, setTouchDraggedItemId] = useState(null);
@@ -391,20 +392,18 @@ function App() {
     };
   }, [messageTimeout, scrollIntervalId]);
 
-  // ---------- 【修正点1】スクロール速度を適正化 ----------
+  // ---------- スクロール最適化（速度調整済み） ----------
   const optimizedScroll = useCallback(() => {
     if (scrollDirection === 0) return;
     
-    // 基本速度を15px/フレームに低減（旧50）
-    const baseSpeed = 15;
+    const baseSpeed = 15; // 基本速度（px/フレーム）
     const multiplier = scrollSpeedMultiplier;
     const direction = Math.sign(scrollDirection);
     const intensity = Math.min(Math.abs(scrollDirection), 3);
     
-    // 速度計算：基本速度 × 乗数 × 強度
     let speed = baseSpeed * multiplier * intensity;
     
-    // マウス位置に基づいた追加ブースト（控えめ）
+    // マウス位置に基づくブースト
     if (lastMousePosition.current) {
       const windowHeight = window.innerHeight;
       const mouseY = lastMousePosition.current.y;
@@ -412,13 +411,11 @@ function App() {
       
       const distanceFromEdge = Math.min(mouseY, windowHeight - mouseY);
       if (distanceFromEdge < aggressiveZone) {
-        // 最大2倍ブースト
         const boost = 1 + (aggressiveZone - distanceFromEdge) / aggressiveZone;
         speed *= boost;
       }
     }
     
-    // 最終スクロール速度（最大200px/フレーム）
     const finalSpeed = direction * Math.min(speed, 200);
     
     window.scrollBy({
@@ -488,9 +485,8 @@ function App() {
       setDropPosition(null);
       setDragInsertGuide(null);
       
-      // 透明度を完全リセット
-      const allCards = document.querySelectorAll('.photo-card');
-      allCards.forEach(card => {
+      // 透明度リセット
+      document.querySelectorAll('.photo-card').forEach(card => {
         card.style.opacity = '1';
         card.style.transform = '';
       });
@@ -515,8 +511,7 @@ function App() {
     };
   }, [isDragging, isManageMode, sortBy]);
 
-  // ---------- 【修正点3 & 6】スマホタッチドラッグ完全対応 ----------
-  // 既存のタッチハンドラーを強化
+  // ---------- スマホタッチドラッグ 完全対応 ----------
   const handleTouchStart = (e, itemId) => {
     if (!isManageMode || sortBy !== "manual") return;
     
@@ -526,39 +521,38 @@ function App() {
     setTouchStartTime(Date.now());
     setTouchDraggedItemId(itemId);
     
+    // ドラッグ開始の可能性があるため半透明にする
     const elem = document.querySelector(`[data-item-id="${itemId}"]`);
     if (elem) elem.style.opacity = '0.5';
     
-    // デフォルトのスクロールを防止（ドラッグ開始時）
-    if (e.cancelable) e.preventDefault();
+    // ここでは preventDefault しない（スクロールを許可）
   };
 
   const handleTouchMove = (e, itemId) => {
     if (!touchDraggedItemId) return;
-    
-    // デフォルトのスクロール／ズームを防止
-    if (e.cancelable) e.preventDefault();
     
     const touch = e.touches[0];
     const deltaY = Math.abs(touch.clientY - touchStartY);
     const deltaX = Math.abs(touch.clientX - touchStartX);
     const deltaTime = Date.now() - touchStartTime;
     
-    // 縦方向に十分移動したらドラッグ開始（横スワイプと区別）
-    if (!isTouchDragging && deltaY > 8 && deltaX < 30 && deltaTime > 120) {
+    // ドラッグ開始判定（閾値を少し下げる）
+    if (!isTouchDragging && deltaY > 5 && deltaX < 30 && deltaTime > 120) {
       setIsTouchDragging(true);
       setDraggedItemId(touchDraggedItemId);
       setIsDragging(true);
+      e.preventDefault(); // ドラッグ開始時にスクロールをロック
     }
     
     if (isTouchDragging) {
+      e.preventDefault(); // スクロール防止
+      
       // マウス位置更新（自動スクロール用）
       lastMousePosition.current = { x: touch.clientX, y: touch.clientY };
       
       // 画面端での自動スクロール判定
       const windowHeight = window.innerHeight;
       const scrollThreshold = 90;
-      
       if (touch.clientY < scrollThreshold) {
         setScrollDirection(-1);
       } else if (touch.clientY > windowHeight - scrollThreshold) {
@@ -567,22 +561,22 @@ function App() {
         setScrollDirection(0);
       }
       
-      // ドラッグオーバー処理
+      // 他のカードの上にいる場合、ドラッグオーバー処理を呼び出す
       if (itemId && itemId !== touchDraggedItemId) {
+        // handleDragOver にタッチイベントを渡す（clientY を使うため）
         handleDragOver(e, itemId);
       }
     }
   };
 
   const handleTouchEnd = (e, itemId) => {
-    // ドロップ処理
     if (isTouchDragging && touchDraggedItemId && itemId && itemId !== touchDraggedItemId) {
       handleDrop(e, itemId);
     } else {
-      handleDragEnd(e); // ドラッグ終了
+      handleDragEnd(e); // キャンセル
     }
     
-    // タッチ状態リセット
+    // 状態リセット
     setIsTouchDragging(false);
     setTouchDraggedItemId(null);
     setTouchStartY(null);
@@ -590,7 +584,7 @@ function App() {
     setTouchStartX(null);
     setScrollDirection(0);
     
-    // 透明度リセット
+    // ドラッグ中の要素の透明度を戻す
     if (touchDraggedItemId) {
       const elem = document.querySelector(`[data-item-id="${touchDraggedItemId}"]`);
       if (elem) elem.style.opacity = '1';
@@ -599,7 +593,7 @@ function App() {
     if (e.cancelable) e.preventDefault();
   };
 
-  // グローバルタッチリスナー（指がカード外に移動してもスクロール可能に）
+  // グローバルタッチリスナー（指がカード外に出てもドラッグ継続）
   useEffect(() => {
     const globalTouchMove = (e) => {
       if (!isTouchDragging || !isManageMode || sortBy !== "manual") return;
@@ -622,9 +616,11 @@ function App() {
 
     const globalTouchEnd = (e) => {
       if (!isTouchDragging) return;
+      // 強制終了（カード外で指を離した場合）
       handleDragEnd(e);
       setIsTouchDragging(false);
       setTouchDraggedItemId(null);
+      setScrollDirection(0);
     };
 
     if (isTouchDragging && isManageMode && sortBy === "manual") {
@@ -659,7 +655,7 @@ function App() {
     return () => unsubscribe();
   }, [checkTemplateFiles]);
 
-  // Firestoreからデータを読み込む関数
+  // Firestore読み込み
   const loadFromFirestore = async (userId) => {
     try {
       setIsLoading(true);
@@ -668,28 +664,17 @@ function App() {
       
       if (docSnap.exists()) {
         const data = docSnap.data();
-        console.log("Firestoreからデータを読み込みました:", data);
-        
         if (Array.isArray(data.groups) && data.groups.length > 0) {
           setGroups(data.groups);
           setSelectedGroup(data.groups[0].name);
-          if (data.groups[0].members.length > 0) {
-            setSelectedMember(data.groups[0].members[0]);
-          }
+          if (data.groups[0].members.length > 0) setSelectedMember(data.groups[0].members[0]);
         }
-        
         if (Array.isArray(data.items)) {
-          const itemsWithOrder = data.items.map((item, index) => ({
-            ...item,
-            order: item.order !== undefined ? item.order : index
-          }));
-          setItems(itemsWithOrder);
+          setItems(data.items.map((item, index) => ({ ...item, order: item.order !== undefined ? item.order : index })));
         }
-        
         showError("クラウドからデータを読み込みました");
         setLastSaved(new Date().toLocaleTimeString());
       } else {
-        console.log("Firestoreにデータがありません。ローカルデータを保存します。");
         await saveToFirestore(userId);
       }
     } catch (error) {
@@ -700,95 +685,60 @@ function App() {
     }
   };
 
-  // Firestore保存関数
+  // Firestore保存
   const saveToFirestore = async (userId) => {
     try {
-      console.log("保存開始:", userId);
-      
-      const dataToSave = {
-        groups,
-        items,
-        lastUpdated: new Date().toISOString()
-      };
-      
       const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
-      
-      await window.fb.setDoc(docRef, dataToSave, { merge: true });
-      
-      console.log("保存成功");
+      await window.fb.setDoc(docRef, { groups, items, lastUpdated: new Date().toISOString() }, { merge: true });
       showError("クラウドに保存しました ✓");
       setLastSaved(new Date().toLocaleTimeString());
-      
     } catch (error) {
-      console.error("保存エラー詳細:", error);
-      
-      if (error.code === 'permission-denied') {
-        showError("❌ 保存権限がありません。管理者に連絡してください。");
-      } else if (error.code === 'unavailable') {
-        showError("🌐 ネットワーク接続を確認してください");
-      } else {
-        showError(`保存失敗: ${error.message}`);
-      }
-      
+      console.error("保存エラー:", error);
+      showError(`保存失敗: ${error.message}`);
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
     }
   };
 
-  // ローカルストレージに保存
+  // ローカル保存
   useEffect(() => { 
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); 
     localStorage.setItem("dark_mode", isDarkMode);
     localStorage.setItem("app_width", appWidth);
   }, [groups, items, isDarkMode, appWidth]);
 
-  // データ変更時に自動でFirestoreに保存
+  // 自動Firestore保存
   useEffect(() => {
     if (!user) return;
-    
-    const timer = setTimeout(() => {
-      saveToFirestore(user.uid);
-    }, 20000);
-    
+    const timer = setTimeout(() => saveToFirestore(user.uid), 20000);
     return () => clearTimeout(timer);
   }, [groups, items, user]);
 
-  // Googleログイン処理
+  // Googleログイン
   const handleGoogleLogin = async () => {
     try {
-      const result = await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
-      console.log("ログイン成功:", result.user);
+      await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
     } catch (error) {
-      console.error("ログインエラー:", error);
       showError("ログインに失敗しました");
     }
   };
 
-  // ログアウト処理
+  // ログアウト
   const handleLogout = async () => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
       await window.fb.signOut(window.fb.auth);
     } catch (error) {
-      console.error("ログアウトエラー:", error);
       showError("ログアウトに失敗しました");
     }
   };
 
-  // 手動でFirestoreに保存
   const handleManualSave = async () => {
-    if (!user) {
-      showError("ログインしてください");
-      return;
-    }
+    if (!user) { showError("ログインしてください"); return; }
     await saveToFirestore(user.uid);
   };
 
-  // 手動でFirestoreから読み込み
   const handleManualLoad = async () => {
-    if (!user) {
-      showError("ログインしてください");
-      return;
-    }
+    if (!user) { showError("ログインしてください"); return; }
     await loadFromFirestore(user.uid);
   };
 
@@ -802,63 +752,46 @@ function App() {
   };
 
   const toggleSignCounters = (id) => {
-    setExpandedSignItems(prev => 
-      prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]
-    );
+    setExpandedSignItems(prev => prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]);
   };
 
-  // ドラッグ＆ドロップのハンドラー（PC用）
+  // ドラッグ＆ドロップハンドラー（PC）
   const handleDragStart = (e, itemId) => {
     if (!isManageMode || sortBy !== "manual") return;
-    
     e.dataTransfer.setData('text/plain', itemId);
     e.dataTransfer.effectAllowed = 'move';
-    
     setDraggedItemId(itemId);
     setIsDragging(true);
-    
     setTimeout(() => {
       const elem = document.querySelector(`[data-item-id="${itemId}"]`);
       if (elem) elem.style.opacity = '0.5';
     }, 0);
   };
 
-  // ドロップ位置計算
   const calculateDropPosition = (e, element) => {
     const rect = element.getBoundingClientRect();
     let y;
-    
     if (e.type.includes('touch')) {
       const touch = e.touches[0];
       y = touch.clientY;
     } else {
       y = e.clientY;
     }
-    
     const threshold = rect.height / 3;
-    
-    if (y < rect.top + threshold) {
-      return { position: 'before', guideY: rect.top };
-    } else if (y > rect.bottom - threshold) {
-      return { position: 'after', guideY: rect.bottom };
-    } else {
-      return { position: 'middle', guideY: rect.top + rect.height / 2 };
-    }
+    if (y < rect.top + threshold) return { position: 'before', guideY: rect.top };
+    if (y > rect.bottom - threshold) return { position: 'after', guideY: rect.bottom };
+    return { position: 'middle', guideY: rect.top + rect.height / 2 };
   };
 
   const handleDragOver = (e, itemId) => {
     if (!isManageMode || sortBy !== "manual" || (!draggedItemId && !touchDraggedItemId)) return;
     e.preventDefault();
-    
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'move';
-    }
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     
     const currentDraggedId = draggedItemId || touchDraggedItemId;
     if (currentDraggedId === itemId) return;
     
     const { position, guideY } = calculateDropPosition(e, e.currentTarget);
-    
     setDragOverItemId(itemId);
     setDropPosition(position);
     setDragInsertGuide(guideY);
@@ -871,33 +804,22 @@ function App() {
     setDragInsertGuide(null);
   };
 
-  // ---------- 【修正点4】透明度リセットを確実に ----------
   const handleDragEnd = (e) => {
     if (!isManageMode || sortBy !== "manual") return;
-    
     setScrollDirection(0);
     
-    // すべての写真カードの透明度をリセット
-    const allCards = document.querySelectorAll('.photo-card');
-    allCards.forEach(card => {
+    document.querySelectorAll('.photo-card').forEach(card => {
       card.style.opacity = '1';
       card.style.transform = '';
     });
     
-    // 特にドラッグ中の要素も明示的にリセット
     if (draggedItemId) {
       const elem = document.querySelector(`[data-item-id="${draggedItemId}"]`);
-      if (elem) {
-        elem.style.opacity = '1';
-        elem.style.transform = '';
-      }
+      if (elem) elem.style.opacity = '1';
     }
     if (touchDraggedItemId) {
       const elem = document.querySelector(`[data-item-id="${touchDraggedItemId}"]`);
-      if (elem) {
-        elem.style.opacity = '1';
-        elem.style.transform = '';
-      }
+      if (elem) elem.style.opacity = '1';
     }
     
     setIsDragging(false);
@@ -908,7 +830,6 @@ function App() {
     setDragInsertGuide(null);
   };
 
-  // アイテム挿入処理
   const handleDrop = (e, targetItemId) => {
     if (!isManageMode || sortBy !== "manual") return;
     
@@ -917,14 +838,11 @@ function App() {
     
     e.preventDefault();
     e.stopPropagation();
-    
     setScrollDirection(0);
     setDragInsertGuide(null);
     
     if (currentDraggedId === targetItemId) {
-      // 透明度リセット
-      const allCards = document.querySelectorAll('.photo-card');
-      allCards.forEach(card => {
+      document.querySelectorAll('.photo-card').forEach(card => {
         card.style.opacity = '1';
         card.style.transform = '';
       });
@@ -933,151 +851,96 @@ function App() {
     
     const draggedItem = items.find(item => item.id === currentDraggedId);
     const targetItem = items.find(item => item.id === targetItemId);
-    
     if (!draggedItem || !targetItem) return;
     
     const currentFiltered = items.filter(i => 
       (selectedGroup === "ALL" || i.group === selectedGroup) && 
       (selectedMember === "ALL" || i.member === selectedMember)
     );
-    
     const currentSorted = [...currentFiltered].sort((a, b) => (a.order || 0) - (b.order || 0));
     
     const draggedIndex = currentSorted.findIndex(item => item.id === currentDraggedId);
     const targetIndex = currentSorted.findIndex(item => item.id === targetItemId);
-    
     if (draggedIndex === -1 || targetIndex === -1) return;
     
     const newOrderItems = [...currentSorted];
     newOrderItems.splice(draggedIndex, 1);
     
     let insertIndex;
-    if (dropPosition === 'before') {
-      insertIndex = targetIndex;
-    } else if (dropPosition === 'after') {
-      insertIndex = targetIndex + 1;
-    } else {
-      insertIndex = targetIndex + 1;
-    }
+    if (dropPosition === 'before') insertIndex = targetIndex;
+    else if (dropPosition === 'after') insertIndex = targetIndex + 1;
+    else insertIndex = targetIndex + 1;
     
-    if (draggedIndex < insertIndex) {
-      insertIndex--;
-    }
-    
+    if (draggedIndex < insertIndex) insertIndex--;
     newOrderItems.splice(insertIndex, 0, draggedItem);
     
     const orderMap = new Map();
-    newOrderItems.forEach((item, index) => {
-      orderMap.set(item.id, index);
-    });
+    newOrderItems.forEach((item, index) => orderMap.set(item.id, index));
     
-    const updatedItems = items.map(item => {
-      if (orderMap.has(item.id)) {
-        return { ...item, order: orderMap.get(item.id) };
-      }
-      return item;
-    }).sort((a, b) => (a.order || 0) - (b.order || 0));
+    setItems(items.map(item => orderMap.has(item.id) ? { ...item, order: orderMap.get(item.id) } : item)
+      .sort((a, b) => (a.order || 0) - (b.order || 0)));
     
-    setItems(updatedItems);
     setDraggedItemId(null);
     setTouchDraggedItemId(null);
     setDragOverItemId(null);
     setDropPosition(null);
     
-    showError(`「${draggedItem.name}」を${targetItem.name}の${dropPosition === 'before' ? '前' : '後'}に移動しました`);
+    showError(`「${draggedItem.name}」を移動しました`);
     
-    // 透明度リセット
-    const allCards = document.querySelectorAll('.photo-card');
-    allCards.forEach(card => {
+    document.querySelectorAll('.photo-card').forEach(card => {
       card.style.opacity = '1';
       card.style.transform = '';
     });
   };
 
-  // 並び順リセット
+  // 並び順リセット（表示中のみ）
   const resetOrder = () => {
     if (confirm('並び順をリセットして新しい順に戻しますか？')) {
       const currentItems = items.filter(i => 
         (selectedGroup === "ALL" || i.group === selectedGroup) && 
         (selectedMember === "ALL" || i.member === selectedMember)
       );
-      
-      const sortedByDate = [...currentItems].sort((a, b) => 
-        (b.createdAt || 0) - (a.createdAt || 0)
-      );
-      
+      const sortedByDate = [...currentItems].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       const orderMap = new Map();
-      sortedByDate.forEach((item, index) => {
-        orderMap.set(item.id, index);
-      });
-      
-      const updatedItems = items.map(item => {
-        if (orderMap.has(item.id)) {
-          return { ...item, order: orderMap.get(item.id) };
-        }
-        return item;
-      }).sort((a, b) => (a.order || 0) - (b.order || 0));
-      
-      setItems(updatedItems);
+      sortedByDate.forEach((item, index) => orderMap.set(item.id, index));
+      setItems(items.map(item => orderMap.has(item.id) ? { ...item, order: orderMap.get(item.id) } : item)
+        .sort((a, b) => (a.order || 0) - (b.order || 0)));
       showError('並び順をリセットしました（新しい順）');
     }
   };
 
   const resetAllOrder = () => {
     if (confirm('すべてのアイテムの並び順を完全にリセットしますか？')) {
-      const sortedItems = [...items].sort((a, b) => 
-        (b.createdAt || 0) - (a.createdAt || 0)
-      );
-      
-      const updatedItems = sortedItems.map((item, index) => ({
-        ...item,
-        order: index
-      }));
-      
-      setItems(updatedItems);
+      const sortedAll = [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      const updated = sortedAll.map((item, index) => ({ ...item, order: index }));
+      setItems(updated);
       showError('すべての並び順をリセットしました');
     }
   };
 
-  // CSVインポート等の関数（省略、元のまま）
+  // CSVインポート
   const handleImportCSV = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (selectedGroup === "ALL" || selectedMember === "ALL") { 
-      showError("グループとメンバーを選択してから取り込んでください"); 
+      showError("グループとメンバーを選択してください"); 
       e.target.value = ""; 
       return; 
     }
-    
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
         const text = ev.target.result;
-        
         const hasTabs = text.includes('\t');
         const delimiter = hasTabs ? '\t' : ',';
-        
-        console.log(`CSV形式を検出: ${hasTabs ? 'タブ区切り' : 'カンマ区切り'}`);
-        
         const rows = parseCSV(text, delimiter);
-        console.log(`読み込んだ行数: ${rows.length}`);
-        
         const newItems = rows.map((row, index) => {
-          if (hasTabs) {
-            return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
-          } else {
-            return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
-          }
+          if (hasTabs) return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
+          else return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
         }).filter(Boolean);
-        
-        console.log(`変換されたアイテム数: ${newItems.length}`);
-        
         setItems(p => [...p, ...newItems]);
-        showError(`${newItems.length}件取り込みました (${hasTabs ? 'タブ区切り' : 'カンマ区切り'})`);
-      } catch(err) { 
-        console.error("CSV解析エラー:", err);
-        showError("CSV形式が正しくありません: " + err.message); 
-      }
+        showError(`${newItems.length}件取り込みました`);
+      } catch(err) { showError("CSV形式エラー: " + err.message); }
     };
     reader.readAsText(file, 'UTF-8');
     e.target.value = "";
@@ -1087,30 +950,19 @@ function App() {
     try {
       setIsLoading(true);
       const response = await fetch(fileName);
-      if (!response.ok) {
-        throw new Error(`テンプレートファイル(${fileName})が見つかりません (ステータス: ${response.status})`);
-      }
-      
+      if (!response.ok) throw new Error(`テンプレートファイルが見つかりません`);
       const csvText = await response.text();
-      
       const hasTabs = csvText.includes('\t');
       const delimiter = hasTabs ? '\t' : ',';
-      
       const rows = parseCSV(csvText, delimiter);
-      
       const newItems = rows.map((row, index) => {
-        if (hasTabs) {
-          return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
-        } else {
-          return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
-        }
+        if (hasTabs) return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
+        else return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
       }).filter(Boolean);
-
       setItems(p => [...p, ...newItems]);
-      showError(`${newItems.length}件のテンプレートを読み込みました (${fileName})`);
+      showError(`${newItems.length}件のテンプレートを読み込みました`);
       setActiveModal(null);
     } catch (err) {
-      console.error("テンプレート読み込みエラー:", err);
       showError(`読み込み失敗: ${err.message}`);
       checkTemplateFiles();
     } finally {
@@ -1153,10 +1005,7 @@ function App() {
     );
     
     return filtered.sort((a, b) => {
-      if (sortBy === "manual") {
-        return (a.order || 0) - (b.order || 0);
-      }
-      
+      if (sortBy === "manual") return (a.order || 0) - (b.order || 0);
       const aCount = (a.yori||0)+(a.chuu||0)+(a.hiki||0)+(a.syori||0)+(a.schuu||0)+(a.shiki||0);
       const bCount = (b.yori||0)+(b.chuu||0)+(b.hiki||0)+(b.syori||0)+(b.schuu||0)+(b.shiki||0);
       switch (sortBy) {
@@ -1220,321 +1069,112 @@ function App() {
   };
 
   const handleCacheClear = () => {
-    if(confirm("データをすべて消除して初期状態に戻しますか？\n(この操作は取り消せません)")){
+    if(confirm("データをすべて消除して初期状態に戻しますか？")){
       localStorage.removeItem(STORAGE_KEY);
       location.reload();
     }
   };
 
-  // スクロール速度ゲージコンポーネント（【修正点7】非表示にするため false && で囲む）
-  const ScrollSpeedGauge = () => {
-    const [speedLevel, setSpeedLevel] = useState(0);
-    
-    useEffect(() => {
-      const updateSpeedLevel = () => {
-        if (scrollDirection === 0) {
-          setSpeedLevel(0);
-          return;
-        }
-        
-        let level = 0;
-        if (Math.abs(scrollDirection) === 1) {
-          level = 30;
-        } else if (Math.abs(scrollDirection) === 2) {
-          level = 60;
-        } else if (Math.abs(scrollDirection) >= 3) {
-          level = 100;
-        }
-        
-        setSpeedLevel(level);
-      };
-      
-      const intervalId = setInterval(updateSpeedLevel, 100);
-      return () => clearInterval(intervalId);
-    }, [scrollDirection]);
-    
-    return (
-      <div className="scroll-speed-gauge">
-        <div 
-          className="scroll-speed-fill" 
-          style={{ height: `${speedLevel}%` }}
-        />
-        <div style={{
-          position: 'absolute',
-          bottom: '-25px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          fontSize: '10px',
-          color: isDarkMode ? '#fff' : '#333',
-          whiteSpace: 'nowrap',
-          fontWeight: 'bold',
-          background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
-          padding: '2px 6px',
-          borderRadius: '10px'
-        }}>
-          {speedLevel > 0 ? `${Math.round(speedLevel)}%` : '停止'}
-        </div>
-      </div>
-    );
-  };
+  // スクロール速度ゲージ（非表示）
+  const ScrollSpeedGauge = () => null;
 
-  // ---------- 【修正点2】スピードコントロールを左上に移動（トップバーの下）----------
+  // スピードコントロール（左上）
   const SpeedControl = () => (
     <div className="speed-control" style={{
-      position: 'fixed',
-      top: '80px',        // トップバーの下に配置
-      left: '10px',
-      zIndex: 9996,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '5px',
-      alignItems: 'flex-start'
+      position: 'fixed', top: '80px', left: '10px', zIndex: 9996,
+      display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start'
     }}>
       <div style={{
-        fontSize: '10px',
-        color: isDarkMode ? '#fff' : '#333',
-        fontWeight: 'bold',
-        textAlign: 'center',
+        fontSize: '10px', color: isDarkMode ? '#fff' : '#333', fontWeight: 'bold',
         background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
-        padding: '2px 6px',
-        borderRadius: '8px',
-        backdropFilter: 'blur(4px)',
-        whiteSpace: 'nowrap'
-      }}>
-        スクロール速度
-      </div>
+        padding: '2px 6px', borderRadius: '8px', backdropFilter: 'blur(4px)', whiteSpace: 'nowrap'
+      }}>スクロール速度</div>
       <div style={{
-        display: 'flex',
-        gap: '2px',
+        display: 'flex', gap: '2px',
         background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
-        padding: '4px',
-        borderRadius: '12px',
-        backdropFilter: 'blur(4px)'
+        padding: '4px', borderRadius: '12px', backdropFilter: 'blur(4px)'
       }}>
-        {[1, 2, 3].map((multiplier) => (
-          <button 
-            key={multiplier}
-            onClick={() => setScrollSpeedMultiplier(multiplier)}
-            style={{
-              padding: '3px 6px',
-              fontSize: '9px',
-              background: scrollSpeedMultiplier === multiplier ? 
-                (multiplier === 1 ? '#2196f3' : multiplier === 2 ? '#4caf50' : '#ff9800') : 
-                'transparent',
-              color: scrollSpeedMultiplier === multiplier ? 'white' : (isDarkMode ? '#ccc' : '#666'),
-              border: '1px solid ' + (isDarkMode ? '#444' : '#ddd'),
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              minWidth: '28px'
-            }}
-          >
-            {multiplier}x
-          </button>
+        {[1, 2, 3].map(m => (
+          <button key={m} onClick={() => setScrollSpeedMultiplier(m)} style={{
+            padding: '3px 6px', fontSize: '9px',
+            background: scrollSpeedMultiplier === m ? (m===1?'#2196f3':m===2?'#4caf50':'#ff9800') : 'transparent',
+            color: scrollSpeedMultiplier === m ? 'white' : (isDarkMode?'#ccc':'#666'),
+            border: '1px solid '+(isDarkMode?'#444':'#ddd'), borderRadius: '8px', cursor: 'pointer',
+            fontWeight: 'bold', minWidth: '28px'
+          }}>{m}x</button>
         ))}
       </div>
     </div>
   );
 
-  // ログイン前の画面
+  // ログイン前
   if (!isAuthReady) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a' }}>
-        <div style={{ color: '#fff' }}>読み込み中...</div>
-      </div>
-    );
+    return <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',background:'#1a1a1a',color:'#fff'}}>読み込み中...</div>;
   }
 
   if (!user) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#1a1a1a', gap: 20 }}>
-        <h1 style={{ color: '#fff', fontSize: 24, margin: 0 }}>生写真管理For=Love</h1>
-        <p style={{ color: '#aaa', margin: 0 }}>Googleアカウントでログインしてください</p>
-        <button 
-          onClick={handleGoogleLogin}
-          style={{
-            padding: '12px 32px',
-            fontSize: 16,
-            background: '#4285f4',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 8,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 18 18">
-            <path fill="#fff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
-            <path fill="#fff" d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.836.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.96v2.332C2.44 15.983 5.485 18 9.003 18z"/>
-            <path fill="#fff" d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
-            <path fill="#fff" d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.428 0 9.002 0 5.485 0 2.44 2.017.96 4.958L3.967 7.29c.708-2.127 2.692-3.71 5.036-3.71z"/>
-          </svg>
+      <div style={{display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',height:'100vh',background:'#1a1a1a',gap:20}}>
+        <h1 style={{color:'#fff',fontSize:24}}>生写真管理For=Love</h1>
+        <p style={{color:'#aaa'}}>Googleアカウントでログインしてください</p>
+        <button onClick={handleGoogleLogin} style={{padding:'12px 32px',fontSize:16,background:'#4285f4',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#fff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#fff" d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.836.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.96v2.332C2.44 15.983 5.485 18 9.003 18z"/><path fill="#fff" d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#fff" d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.428 0 9.002 0 5.485 0 2.44 2.017.96 4.958L3.967 7.29c.708-2.127 2.692-3.71 5.036-3.71z"/></svg>
           Googleでログイン
         </button>
-        <p style={{ color: '#777', fontSize: 12, marginTop: 20, textAlign: 'center', maxWidth: 300 }}>
-          ※ログインすると、データがクラウドに自動保存され<br />
-          別の端末でも同じデータを利用できます
-        </p>
       </div>
     );
   }
 
-  // メインのアプリ画面（ログイン後）
+  // メイン画面
   return (
-    <div className={isDarkMode ? "dark-mode" : ""} style={{ 
-      maxWidth: appWidth,
-      margin: '0 auto',
-      minHeight: '100vh',
-      transition: 'max-width 0.3s'
-    }}>
+    <div className={isDarkMode ? "dark-mode" : ""} style={{ maxWidth: appWidth, margin: '0 auto', minHeight: '100vh', transition: 'max-width 0.3s' }}>
       {errorMsg && <div className="error-toast">⚠️ {errorMsg}</div>}
-      {isLoading && (
-        <div className="loading-overlay">
-          <div className="loading-spinner"></div>
-          <div className="loading-text">同期中...</div>
-        </div>
-      )}
+      {isLoading && <div className="loading-overlay"><div className="loading-spinner"></div><div className="loading-text">同期中...</div></div>}
       
-      {/* 挿入ガイドライン */}
-      {dragInsertGuide !== null && (
-        <div 
-          className="drag-insert-guide"
-          style={{ top: dragInsertGuide }}
-        />
-      )}
+      {dragInsertGuide !== null && <div className="drag-insert-guide" style={{ top: dragInsertGuide }} />}
       
-      {/* スクロールインジケーター */}
       {scrollDirection !== 0 && (
         <div className={`scroll-indicator ${scrollDirection === -1 ? 'scroll-up' : 'scroll-down'} ${Math.abs(scrollDirection) >= 2 ? 'turbo' : ''}`}>
-          {scrollDirection === -1 ? '↑ 上にスクロール中 ↑' : '↓ 下にスクロール中 ↓'}
+          {scrollDirection === -1 ? '↑ 上にスクロール ↑' : '↓ 下にスクロール ↓'}
         </div>
       )}
       
-      {/* ドラッグヒント */}
-      {isDragging && (
-        <div className="drag-hint">
-          📍 アイテムを他のアイテムの間に入れて挿入できます
-        </div>
-      )}
+      {isDragging && <div className="drag-hint">📍 アイテムを他のアイテムの間に入れて挿入できます</div>}
       
-      {/* 高速スクロールコントロール（管理モード＆手動並び替え時のみ表示） */}
       {isManageMode && sortBy === "manual" && (
         <>
           <SpeedControl />
-          {/* 【修正点7】スクロール速度ゲージを非表示（false && でコメントアウト） */}
-          {false && <ScrollSpeedGauge />}
-          
-          {scrollSpeedMultiplier > 1 && (
-            <div className="turbo-hint">
-              🚀 ターボモード: {scrollSpeedMultiplier}x
-            </div>
-          )}
-          
+          {scrollSpeedMultiplier > 1 && <div className="turbo-hint">🚀 ターボモード: {scrollSpeedMultiplier}x</div>}
           {scrollDirection !== 0 && (
             <div className={`speed-indicator ${Math.abs(scrollDirection) >= 2 ? 'turbo' : ''}`}>
-              {Math.abs(scrollDirection) === 1 ? '通常' : 
-               Math.abs(scrollDirection) === 2 ? '高速' : '超高速'}スクロール中
+              {Math.abs(scrollDirection) === 1 ? '通常' : Math.abs(scrollDirection) === 2 ? '高速' : '超高速'}スクロール中
             </div>
           )}
         </>
       )}
       
-      <div className={"top-bar"}>
-        <div style={{display:'flex', alignItems:'center', gap:10}}>
-          <h3 style={{margin: 0, fontSize: '16px'}}>生写真管理For=Love</h3>
-          {lastSaved && (
-            <span style={{
-              fontSize:10, 
-              color:'#4caf50', 
-              background:'rgba(76,175,80,0.1)', 
-              padding:'2px 6px', 
-              borderRadius:4,
-              fontWeight: 'bold'
-            }}>
-              ✓ {lastSaved}
-            </span>
-          )}
+      <div className="top-bar">
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <h3 style={{margin:0,fontSize:'16px'}}>生写真管理For=Love</h3>
+          {lastSaved && <span style={{fontSize:10,color:'#4caf50',background:'rgba(76,175,80,0.1)',padding:'2px 6px',borderRadius:4,fontWeight:'bold'}}>✓ {lastSaved}</span>}
         </div>
-        <div style={{display:'flex', gap:8, alignItems:'center'}}>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {user && (
-            <div style={{
-              display:'flex', 
-              alignItems:'center', 
-              gap:6, 
-              fontSize:12,
-              padding: '4px 8px',
-              background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
-              borderRadius: '20px'
-            }}>
-              <img src={user.photoURL} alt="avatar" style={{
-                width:24, 
-                height:24, 
-                borderRadius:'50%',
-                border: isDarkMode ? '1px solid #444' : '1px solid #ddd'
-              }} />
-              <span style={{
-                fontWeight: 'bold',
-                color: isDarkMode ? '#fff' : '#333',
-                maxWidth: '100px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
-              }}>
-                {user.displayName}
-              </span>
+            <div style={{display:'flex',alignItems:'center',gap:6,fontSize:12,padding:'4px 8px',background:isDarkMode?'#2a2a2a':'#f5f5f5',borderRadius:'20px'}}>
+              <img src={user.photoURL} alt="avatar" style={{width:24,height:24,borderRadius:'50%',border:isDarkMode?'1px solid #444':'1px solid #ddd'}} />
+              <span style={{fontWeight:'bold',color:isDarkMode?'#fff':'#333',maxWidth:'100px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{user.displayName}</span>
             </div>
           )}
-          <button 
-            onClick={() => setActiveModal('app_settings')}
-            style={{
-              padding:'6px 12px',
-              background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
-              border: isDarkMode ? '1px solid #444' : '1px solid #ddd',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              color: isDarkMode ? '#fff' : '#333'
-            }}
-          >
-          ⚙️
-          </button>
-          <button 
-            onClick={()=>setIsDarkMode(!isDarkMode)}
-            style={{
-              padding:'6px 8px',
-              background: isDarkMode ? '#2a2a2a' : '#f5f5f5',
-              border: isDarkMode ? '1px solid #444' : '1px solid #ddd',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '16px'
-            }}
-          >
-            {isDarkMode?"☀️":"🌙"}
-          </button>
+          <button onClick={()=>setActiveModal('app_settings')} style={{padding:'6px 12px',background:isDarkMode?'#2a2a2a':'#f5f5f5',border:isDarkMode?'1px solid #444':'1px solid #ddd',borderRadius:'6px',cursor:'pointer',fontSize:'14px',fontWeight:'bold',display:'flex',alignItems:'center',gap:'4px',color:isDarkMode?'#fff':'#333'}}>⚙️</button>
+          <button onClick={()=>setIsDarkMode(!isDarkMode)} style={{padding:'6px 8px',background:isDarkMode?'#2a2a2a':'#f5f5f5',border:isDarkMode?'1px solid #444':'1px solid #ddd',borderRadius:'6px',cursor:'pointer',fontSize:'16px'}}>{isDarkMode?"☀️":"🌙"}</button>
         </div>
       </div>
 
       <div className="main-layout">
         {isManageMode && sortBy === "manual" && (
           <div className="sort-helper">
-            <span className="sort-hint">
-              ✨ 写真カードをドラッグして自由に並び替えられます
-              <br />
-              <small>アイテムの間に入れると挿入できます</small>
-            </span>
-            <button 
-              className="reset-order-btn"
-              onClick={resetOrder}
-              title="並び順をリセット"
-            >
-              🔄 現在の並び順をリセット
-            </button>
+            <span className="sort-hint">✨ 写真カードをドラッグして自由に並び替えられます<br /><small>アイテムの間に入れると挿入できます</small></span>
+            <button className="reset-order-btn" onClick={resetOrder}>🔄 現在の並び順をリセット</button>
           </div>
         )}
         
@@ -1544,86 +1184,37 @@ function App() {
               <div className="stats-label">収集率</div>
               <div className="progress-circle-container">
                 <div className="progress-circle-bg"></div>
-                <div 
-                  className="progress-circle" 
-                  style={{
-                    background: `conic-gradient(${isDarkMode ? 'var(--color-primary)' : 'var(--light-primary)'} 0% ${stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}%, transparent ${stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}% 100%)`
-                  }}
-                ></div>
-                <div className="progress-circle-mask">
-                  <span className="progress-percentage">{stats.totalSlots ? Math.round((stats.collectedSlots/stats.totalSlots)*100) : 0}%</span>
-                </div>
+                <div className="progress-circle" style={{background:`conic-gradient(${isDarkMode?'var(--color-primary)':'var(--light-primary)'} 0% ${stats.totalSlots?Math.round((stats.collectedSlots/stats.totalSlots)*100):0}%, transparent ${stats.totalSlots?Math.round((stats.collectedSlots/stats.totalSlots)*100):0}% 100%)`}}></div>
+                <div className="progress-circle-mask"><span className="progress-percentage">{stats.totalSlots?Math.round((stats.collectedSlots/stats.totalSlots)*100):0}%</span></div>
               </div>
               <div className="stats-fraction">{stats.collectedSlots} / {stats.totalSlots}</div>
             </div>
-            
             <div className="stats-box">
               <div className="stats-label">コンプリート率</div>
               <div className="progress-circle-container">
                 <div className="progress-circle-bg"></div>
-                <div 
-                  className="progress-circle" 
-                  style={{
-                    background: `conic-gradient(${isDarkMode ? 'var(--color-success)' : 'var(--light-success)'} 0% ${stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}%, transparent ${stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}% 100%)`
-                  }}
-                ></div>
-                <div className="progress-circle-mask">
-                  <span className="progress-percentage">{stats.totalKinds ? Math.round((stats.completedKinds/stats.totalKinds)*100) : 0}%</span>
-                </div>
+                <div className="progress-circle" style={{background:`conic-gradient(${isDarkMode?'var(--color-success)':'var(--light-success)'} 0% ${stats.totalKinds?Math.round((stats.completedKinds/stats.totalKinds)*100):0}%, transparent ${stats.totalKinds?Math.round((stats.completedKinds/stats.totalKinds)*100):0}% 100%)`}}></div>
+                <div className="progress-circle-mask"><span className="progress-percentage">{stats.totalKinds?Math.round((stats.completedKinds/stats.totalKinds)*100):0}%</span></div>
               </div>
               <div className="stats-fraction">{stats.completedKinds} / {stats.totalKinds}</div>
             </div>
           </div>
-          
           <div className="stats-summary">
-            <div className="stat-item">
-              <span className="stat-value">{stats.totalKinds}</span>
-              <span className="stat-label">総写真数</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-value">{stats.collectedSlots}</span>
-              <span className="stat-label">収集済み</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-value">{stats.completedKinds}</span>
-              <span className="stat-label">コンプリート</span>
-            </div>
+            <div className="stat-item"><span className="stat-value">{stats.totalKinds}</span><span className="stat-label">総写真数</span></div>
+            <div className="stat-item"><span className="stat-value">{stats.collectedSlots}</span><span className="stat-label">収集済み</span></div>
+            <div className="stat-item"><span className="stat-value">{stats.completedKinds}</span><span className="stat-label">コンプリート</span></div>
           </div>
         </div>
 
         <div className="control-panel">
           <div className="control-header">
-            <div>
-              <strong>管理モード</strong>
-              {isManageMode && <span className="manage-mode-badge">ON</span>}
-            </div>
-            <button 
-              className="manage-toggle" 
-              onClick={() => setIsManageMode(!isManageMode)}
-              style={{ color: isManageMode ? '#ff5252' : '' }}
-            >
-              ✏️
-            </button>
+            <div><strong>管理モード</strong>{isManageMode && <span className="manage-mode-badge">ON</span>}</div>
+            <button className="manage-toggle" onClick={()=>setIsManageMode(!isManageMode)} style={{color:isManageMode?'#ff5252':''}}>✏️</button>
           </div>
-
           <div className="filter-row">
-            <input 
-              className="search-input" 
-              placeholder="検索..." 
-              value={search} 
-              onChange={e => setSearch(e.target.value)} 
-            />
-            <button 
-              className={`wish-toggle-btn ${showOnlyWish ? 'active' : ''}`} 
-              onClick={() => setShowOnlyWish(!showOnlyWish)}
-            >
-              ⭐ のみ
-            </button>
-            <select 
-              className="sort-select" 
-              value={sortBy} 
-              onChange={e => setSortBy(e.target.value)}
-            >
+            <input className="search-input" placeholder="検索..." value={search} onChange={e=>setSearch(e.target.value)} />
+            <button className={`wish-toggle-btn ${showOnlyWish?'active':''}`} onClick={()=>setShowOnlyWish(!showOnlyWish)}>⭐ のみ</button>
+            <select className="sort-select" value={sortBy} onChange={e=>setSortBy(e.target.value)}>
               <option value="manual">手動並び替え</option>
               <option value="new">新しい順</option>
               <option value="old">古い順</option>
@@ -1635,49 +1226,14 @@ function App() {
           </div>
 
           <div className="group-section">
-            <div className="section-title">
-              <strong>グループ選択</strong>
-              <button 
-                className="add-btn" 
-                onClick={() => setActiveModal('add_group')}
-              >
-                +
-              </button>
-            </div>
+            <div className="section-title"><strong>グループ選択</strong><button className="add-btn" onClick={()=>setActiveModal('add_group')}>+</button></div>
             <ul className="button-list">
-              <li>
-                <button 
-                  className={`btn-item ${selectedGroup === 'ALL' ? 'active' : ''}`} 
-                  onClick={() => {
-                    setSelectedGroup('ALL');
-                    setSelectedMember('ALL');
-                  }}
-                >
-                  ALL
-                </button>
-              </li>
-              {groups.map(g => (
+              <li><button className={`btn-item ${selectedGroup==='ALL'?'active':''}`} onClick={()=>{setSelectedGroup('ALL');setSelectedMember('ALL');}}>ALL</button></li>
+              {groups.map(g=>(
                 <li key={g.name}>
-                  <button 
-                    className={`btn-item ${selectedGroup === g.name ? 'active' : ''}`} 
-                    onClick={() => {
-                      setSelectedGroup(g.name);
-                      setSelectedMember(g.members.length > 0 ? g.members[0] : 'ALL');
-                    }}
-                  >
+                  <button className={`btn-item ${selectedGroup===g.name?'active':''}`} onClick={()=>{setSelectedGroup(g.name);setSelectedMember(g.members.length>0?g.members[0]:'ALL');}}>
                     {g.name}
-                    {isManageMode && (
-                      <button 
-                        className="btn-delete-small" 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          setTargetName(g.name); 
-                          setActiveModal('delete_group'); 
-                        }}
-                      >
-                        ×
-                      </button>
-                    )}
+                    {isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(g.name);setActiveModal('delete_group');}}>×</button>}
                   </button>
                 </li>
               ))}
@@ -1685,45 +1241,14 @@ function App() {
           </div>
 
           <div className="member-section">
-            <div className="section-title">
-              <strong>メンバー選択</strong>
-              {selectedGroup !== 'ALL' && selectedGroup && (
-                <button 
-                  className="add-btn" 
-                  onClick={() => setActiveModal('add_member')}
-                >
-                  +
-                </button>
-              )}
-            </div>
+            <div className="section-title"><strong>メンバー選択</strong>{selectedGroup!=='ALL'&&selectedGroup&&<button className="add-btn" onClick={()=>setActiveModal('add_member')}>+</button>}</div>
             <ul className="button-list">
-              <li>
-                <button 
-                  className={`btn-item ${selectedMember === 'ALL' ? 'active' : ''}`} 
-                  onClick={() => setSelectedMember('ALL')}
-                >
-                  ALL
-                </button>
-              </li>
-              {selectedGroup !== 'ALL' && groups.find(g => g.name === selectedGroup)?.members.map(m => (
+              <li><button className={`btn-item ${selectedMember==='ALL'?'active':''}`} onClick={()=>setSelectedMember('ALL')}>ALL</button></li>
+              {selectedGroup!=='ALL' && groups.find(g=>g.name===selectedGroup)?.members.map(m=>(
                 <li key={m}>
-                  <button 
-                    className={`btn-item ${selectedMember === m ? 'active' : ''}`} 
-                    onClick={() => setSelectedMember(m)}
-                  >
+                  <button className={`btn-item ${selectedMember===m?'active':''}`} onClick={()=>setSelectedMember(m)}>
                     {m}
-                    {isManageMode && (
-                      <button 
-                        className="btn-delete-small" 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          setTargetName(m); 
-                          setActiveModal('delete_member'); 
-                        }}
-                      >
-                        ×
-                      </button>
-                    )}
+                    {isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(m);setActiveModal('delete_member');}}>×</button>}
                   </button>
                 </li>
               ))}
@@ -1732,7 +1257,7 @@ function App() {
         </div>
 
         {selectedGroup !== "ALL" && selectedMember !== "ALL" && (
-          <button className="add-trigger-btn" onClick={() => setActiveModal('add_photo')}>＋ 生写真を追加</button>
+          <button className="add-trigger-btn" onClick={()=>setActiveModal('add_photo')}>＋ 生写真を追加</button>
         )}
 
         {sortedItems.map(i => {
@@ -1754,111 +1279,71 @@ function App() {
               onDragLeave={handleDragLeave}
               onDragEnd={handleDragEnd}
               onDrop={(e) => handleDrop(e, i.id)}
-              // ---------- 【修正点5】タッチイベント完全対応 ----------
+              // スマホタッチイベント
               onTouchStart={(e) => handleTouchStart(e, i.id)}
               onTouchMove={(e) => handleTouchMove(e, i.id)}
               onTouchEnd={(e) => handleTouchEnd(e, i.id)}
               onTouchCancel={(e) => handleTouchEnd(e, i.id)}
             >
-              {/* ドラッグハンドル：タッチ操作用に onTouchStart も追加 */}
               {isManageMode && sortBy === "manual" && (
-                <div 
-                  className="drag-handle" 
-                  title="ドラッグして並び替え"
-                  onTouchStart={(e) => {
-                    e.stopPropagation();
-                    handleTouchStart(e, i.id);
-                  }}
-                >
-                  ⋮⋮
-                </div>
+                <div className="drag-handle" title="ドラッグして並び替え" onTouchStart={(e)=>{e.stopPropagation();handleTouchStart(e,i.id);}}>⋮⋮</div>
               )}
               
-              <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:10}}>
-                {isManageMode && <input type="checkbox" className="selection-checkbox" checked={isSelected} onChange={() => toggleSelectItem(i.id)} />}
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+                {isManageMode && <input type="checkbox" className="selection-checkbox" checked={isSelected} onChange={()=>toggleSelectItem(i.id)} />}
                 <div className="img-container">
-                  <div className="btn-img-add" onClick={() => openEditImgModal(i)}>＋</div>
-                  <div style={{width:65, cursor:'pointer'}} onClick={() => {
+                  <div className="btn-img-add" onClick={()=>openEditImgModal(i)}>＋</div>
+                  <div style={{width:65,cursor:'pointer'}} onClick={()=>{
                     const imgs = [i.thumbnail, ...(i.otherImages||[])].filter(Boolean);
                     if(imgs.length) setViewer({ images: imgs, index: 0, name: i.name });
                     else openEditImgModal(i);
                   }}>
-                    {i.thumbnail ? <img src={i.thumbnail} style={{width:'100%', borderRadius:4}} /> : <div style={{background:'#eee', height:60, borderRadius:4, fontSize:8, textAlign:'center', display:'flex', alignItems:'center', justifyContent:'center', color:'#888'}}>画像なし</div>}
+                    {i.thumbnail ? <img src={i.thumbnail} style={{width:'100%',borderRadius:4}} /> : <div style={{background:'#eee',height:60,borderRadius:4,fontSize:8,textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center',color:'#888'}}>画像なし</div>}
                   </div>
                 </div>
               </div>
               <div className="card-content">
-                <div style={{display:'flex', justifyBetween:'space-between', alignItems:'center'}}>
-                  <div style={{flex: 1, minWidth: 0, display:'flex', alignItems:'center', gap:8}}>
-                    <button className={`wish-toggle ${i.isWish ? 'active' : ''}`} onClick={() => updateItem(i.id, 'isWish', !i.isWish)}>⭐</button>
-                    {editingNameId === i.id ? (
-                      <input 
-                        className="edit-name-input"
-                        autoFocus 
-                        value={i.name} 
-                        onChange={e => updateItem(i.id, 'name', e.target.value)} 
-                        onBlur={() => setEditingNameId(null)}
-                        onKeyDown={e => { if(e.key === 'Enter') setEditingNameId(null); }}
-                      />
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{flex:1,minWidth:0,display:'flex',alignItems:'center',gap:8}}>
+                    <button className={`wish-toggle ${i.isWish?'active':''}`} onClick={()=>updateItem(i.id,'isWish',!i.isWish)}>⭐</button>
+                    {editingNameId===i.id ? (
+                      <input className="edit-name-input" autoFocus value={i.name} onChange={e=>updateItem(i.id,'name',e.target.value)} onBlur={()=>setEditingNameId(null)} onKeyDown={e=>{if(e.key==='Enter')setEditingNameId(null);}} />
                     ) : (
-                      <span className="name-display" onClick={() => setEditingNameId(i.id)}>
-                        {i.name} {comp && "👍️"}
-                      </span>
+                      <span className="name-display" onClick={()=>setEditingNameId(i.id)}>{i.name} {comp && "👍️"}</span>
                     )}
                   </div>
-                  <button onClick={()=>{ setTargetName(i.name); setTargetId(i.id); setActiveModal('delete_photo'); }} style={{color:'#999', border:'none', background:'none', cursor:'pointer'}}>✕</button>
+                  <button onClick={()=>{setTargetName(i.name);setTargetId(i.id);setActiveModal('delete_photo');}} style={{color:'#999',border:'none',background:'none',cursor:'pointer'}}>✕</button>
                 </div>
-                
-                <div style={{display:'flex', gap:4, flexWrap:'wrap', marginBottom: 8}}>
-                  {[ {k:'yori', l:'寄'}, {k:'chuu', l:'中'}, {k:'hiki', l:'引'} ].map(o => (
+                <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
+                  {[ {k:'yori',l:'寄'}, {k:'chuu',l:'中'}, {k:'hiki',l:'引'} ].map(o => (
                     <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-stock' : ''}`}>
-                      <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
-                      <button className="btn-qty" onClick={() => updateItem(i.id, o.k, Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
+                      <span style={{fontSize:9,padding:'0 4px',fontWeight:'bold'}}>{o.l}</span>
+                      <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
                       <span className="qty-val">{i[o.k]||0}</span>
-                      <button className="btn-qty" onClick={() => updateItem(i.id, o.k, (parseInt(i[o.k])||0)+1)}>+</button>
+                      <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,(parseInt(i[o.k])||0)+1)}>+</button>
                     </div>
                   ))}
                 </div>
-                
                 <div className="sign-counters-container">
-                  <button 
-                    className={`sign-counters-toggle ${isSignExpanded ? 'active' : ''}`}
-                    onClick={() => toggleSignCounters(i.id)}
-                  >
-                    サイン付きカウンター
-                  </button>
-                  <div className={`sign-counters-content ${isSignExpanded ? 'expanded' : ''}`}>
-                    {[ {k:'syori', l:'サイン寄'}, {k:'schuu', l:'サイン中'}, {k:'shiki', l:'サイン引'} ].map(o => (
+                  <button className={`sign-counters-toggle ${isSignExpanded?'active':''}`} onClick={()=>toggleSignCounters(i.id)}>サイン付きカウンター</button>
+                  <div className={`sign-counters-content ${isSignExpanded?'expanded':''}`}>
+                    {[ {k:'syori',l:'サイン寄'}, {k:'schuu',l:'サイン中'}, {k:'shiki',l:'サイン引'} ].map(o => (
                       <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-sign' : ''}`}>
-                        <span style={{fontSize: 9, padding:'0 4px', fontW:'bold'}}>{o.l}</span>
-                        <button className="btn-qty" onClick={() => updateItem(i.id, o.k, Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
+                        <span style={{fontSize:9,padding:'0 4px',fontWeight:'bold'}}>{o.l}</span>
+                        <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
                         <span className="qty-val">{i[o.k]||0}</span>
-                        <button className="btn-qty" onClick={() => updateItem(i.id, o.k, (parseInt(i[o.k])||0)+1)}>+</button>
+                        <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,(parseInt(i[o.k])||0)+1)}>+</button>
                       </div>
                     ))}
                   </div>
                 </div>
-                
-                <div className="row-inputs" style={{ flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
-                  <select 
-                    className="source-select" 
-                    value={i.source || "入手先"} 
-                    onChange={e => updateItem(i.id, 'source', e.target.value)}
-                    style={{ height: '36px' }} 
-                  >
-                    {SOURCE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                <div className="row-inputs" style={{flexWrap:'wrap',gap:'8px',marginTop:'8px'}}>
+                  <select className="source-select" value={i.source||"入手先"} onChange={e=>updateItem(i.id,'source',e.target.value)} style={{height:'36px'}}>
+                    {SOURCE_OPTIONS.map(opt=><option key={opt} value={opt}>{opt}</option>)}
                   </select>
-                  <input 
-                    className="details-input" 
-                    style={{ flex: '1 1 150px', height: '36px' }} 
-                    placeholder="メモ" 
-                    value={i.memo || ""} 
-                    onChange={e => updateItem(i.id, 'memo', e.target.value)} 
-                  />
+                  <input className="details-input" style={{flex:'1 1 150px',height:'36px'}} placeholder="メモ" value={i.memo||""} onChange={e=>updateItem(i.id,'memo',e.target.value)} />
                   <div className="price-wrapper">
-                    <input className="details-input" style={{width:'100%'}} placeholder="価格" 
-                      value={formatWithComma(i.price)} 
-                      onChange={e => updateItem(i.id, 'price', e.target.value.replace(/\D/g,'').slice(0, 7))} />
+                    <input className="details-input" style={{width:'100%'}} placeholder="価格" value={formatWithComma(i.price)} onChange={e=>updateItem(i.id,'price',e.target.value.replace(/\D/g,'').slice(0,7))} />
                     <span className="currency-unit">円</span>
                   </div>
                 </div>
@@ -1870,26 +1355,23 @@ function App() {
 
       {isManageMode && sortedItems.length > 0 && (
         <div className="selection-bar">
-          <div style={{display:'flex', alignItems:'center', gap:10}}>
-            <input type="checkbox" className="selection-checkbox" checked={selectedItemIds.length > 0 && selectedItemIds.length === sortedItems.length} onChange={(e) => {
-              if(e.target.checked) setSelectedItemIds(sortedItems.map(it => it.id));
-              else setSelectedItemIds([]);
-            }} />
-            <span style={{fontSize:12, fontW:'bold'}}>{selectedItemIds.length}件選択中</span>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <input type="checkbox" className="selection-checkbox" checked={selectedItemIds.length>0 && selectedItemIds.length===sortedItems.length} onChange={(e)=>{if(e.target.checked) setSelectedItemIds(sortedItems.map(it=>it.id)); else setSelectedItemIds([]);}} />
+            <span style={{fontSize:12,fontWeight:'bold'}}>{selectedItemIds.length}件選択中</span>
           </div>
-          <div style={{display:'flex', gap:8}}>
-            <button className="batch-btn" onClick={() => batchAction('wish')}>一括お気に入り</button>
-            <button className="batch-btn" onClick={() => batchAction('stock')}>すべて+1</button>
-            <button className="batch-btn" style={{background:'#000'}} onClick={() => batchAction('delete')}>削除</button>
+          <div style={{display:'flex',gap:8}}>
+            <button className="batch-btn" onClick={()=>batchAction('wish')}>一括お気に入り</button>
+            <button className="batch-btn" onClick={()=>batchAction('stock')}>すべて+1</button>
+            <button className="batch-btn" style={{background:'#000'}} onClick={()=>batchAction('delete')}>削除</button>
           </div>
         </div>
       )}
 
       {viewer && (
-        <div className="lightbox" onClick={() => setViewer(null)}>
+        <div className="lightbox" onClick={()=>setViewer(null)}>
           <div className="lightbox-close">×</div>
-          <img src={viewer.images[viewer.index]} onClick={(e) => { e.stopPropagation(); setViewer({ ...viewer, index: (viewer.index + 1) % viewer.images.length }); }} />
-          <div className="lightbox-info"><strong>{viewer.name}</strong><br/>{viewer.index + 1} / {viewer.images.length}</div>
+          <img src={viewer.images[viewer.index]} onClick={(e)=>{e.stopPropagation();setViewer({...viewer,index:(viewer.index+1)%viewer.images.length});}} />
+          <div className="lightbox-info"><strong>{viewer.name}</strong><br/>{viewer.index+1} / {viewer.images.length}</div>
         </div>
       )}
 
@@ -1899,331 +1381,104 @@ function App() {
             {activeModal === 'app_settings' && (
               <div>
                 <h3 style={{margin:'0 0 15px 0'}}>設定</h3>
-                
                 {user && (
-                  <div style={{
-                    marginBottom: '15px', 
-                    padding: '15px', 
-                    background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                    borderRadius: '12px',
-                    border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                  }}>
-                    <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px'}}>
-                      <img src={user.photoURL} alt="avatar" style={{width:40, height:40, borderRadius:'50%'}} />
-                      <div>
-                        <div style={{fontWeight: 'bold', fontSize: '14px'}}>{user.displayName}</div>
-                        <div style={{fontSize: '11px', color: '#666'}}>{user.email}</div>
-                      </div>
+                  <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px',border:'1px solid '+(isDarkMode?'#444':'#eee')}}>
+                    <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'10px'}}>
+                      <img src={user.photoURL} alt="avatar" style={{width:40,height:40,borderRadius:'50%'}} />
+                      <div><div style={{fontWeight:'bold',fontSize:'14px'}}>{user.displayName}</div><div style={{fontSize:'11px',color:'#666'}}>{user.email}</div></div>
                     </div>
-                    {lastSaved && (
-                      <div style={{fontSize: '12px', color: '#4caf50', textAlign: 'center'}}>
-                        ✓ 最終保存: {lastSaved}
-                      </div>
-                    )}
+                    {lastSaved && <div style={{fontSize:'12px',color:'#4caf50',textAlign:'center'}}>✓ 最終保存: {lastSaved}</div>}
                   </div>
                 )}
-
-                <div style={{
-                  marginBottom: '15px', 
-                  padding: '15px', 
-                  background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                  borderRadius: '12px',
-                  border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                }}>
-                  <h4 style={{marginTop:0, marginBottom: '10px'}}>クラウド同期</h4>
-                  <div style={{display: 'flex', gap: '8px', marginBottom: '10px'}}>
-                    <button onClick={handleManualSave} style={{
-                      flex: 1,
-                      padding: '10px',
-                      background: '#4caf50',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: 'bold'
-                    }}>
-                      💾 手動保存
-                    </button>
-                    <button onClick={handleManualLoad} style={{
-                      flex: 1,
-                      padding: '10px',
-                      background: '#2196f3',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: 'bold'
-                    }}>
-                      🔄 手動読込
-                    </button>
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px',border:'1px solid '+(isDarkMode?'#444':'#eee')}}>
+                  <h4 style={{marginTop:0,marginBottom:'10px'}}>クラウド同期</h4>
+                  <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
+                    <button onClick={handleManualSave} style={{flex:1,padding:'10px',background:'#4caf50',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold'}}>💾 手動保存</button>
+                    <button onClick={handleManualLoad} style={{flex:1,padding:'10px',background:'#2196f3',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold'}}>🔄 手動読込</button>
                   </div>
-                  <p style={{fontSize:'11px', color:'#666', margin:0}}>
-                    データは自動的にクラウドに保存されます。<br/>
-                    別の端末で同じアカウントでログインすると同期されます。
-                  </p>
+                  <p style={{fontSize:'11px',color:'#666',margin:0}}>データは自動的にクラウドに保存されます。別の端末で同じアカウントでログインすると同期されます。</p>
                 </div>
-
-                <div style={{
-                  marginBottom: '15px', 
-                  padding: '15px', 
-                  background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                  borderRadius: '12px',
-                  border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                }}>
-                  <h4 style={{marginTop:0, marginBottom: '10px'}}>データ操作</h4>
-                  <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
-                    <button onClick={handleCSVExport} style={{
-                      padding: '10px',
-                      background: '#ff9800',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: 'bold'
-                    }}>
-                      📤 CSV出力（カンマ区切り）
-                    </button>
-                    <button onClick={handleTSVExport} style={{
-                      padding: '10px',
-                      background: '#9c27b0',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: 'bold'
-                    }}>
-                      📤 TSV出力（タブ区切り）
-                    </button>
-                    <label style={{
-                      padding: '10px',
-                      background: '#2196f3',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: 'bold',
-                      textAlign: 'center'
-                    }}>
-                      📥 CSV/TSV取込
-                      <input type="file" accept=".csv,.tsv,.txt" style={{display:'none'}} onChange={handleImportCSV} />
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px',border:'1px solid '+(isDarkMode?'#444':'#eee')}}>
+                  <h4 style={{marginTop:0,marginBottom:'10px'}}>データ操作</h4>
+                  <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+                    <button onClick={handleCSVExport} style={{padding:'10px',background:'#ff9800',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold'}}>📤 CSV出力（カンマ区切り）</button>
+                    <button onClick={handleTSVExport} style={{padding:'10px',background:'#9c27b0',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold'}}>📤 TSV出力（タブ区切り）</button>
+                    <label style={{padding:'10px',background:'#2196f3',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold',textAlign:'center'}}>
+                      📥 CSV/TSV取込<input type="file" accept=".csv,.tsv,.txt" style={{display:'none'}} onChange={handleImportCSV} />
                     </label>
-                    
                     {availableTemplates.length > 0 && (
-                      <div style={{marginTop: '10px'}}>
-                        <div style={{fontSize: '11px', color: '#666', marginBottom: '5px'}}>テンプレートから読み込み ({availableTemplates.length}件):</div>
-                        <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '5px'}}>
-                          {availableTemplates.map(fileName => (
-                            <button 
-                              key={fileName}
-                              onClick={() => loadExternalTemplate(fileName)}
-                              style={{
-                                padding: '8px',
-                                background: '#9c27b0',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '6px',
-                                cursor: 'pointer',
-                                fontSize: '11px',
-                                fontWeight: 'bold',
-                                textAlign: 'center'
-                              }}
-                            >
-                              {fileName.replace('.csv', '')}
-                            </button>
+                      <div style={{marginTop:'10px'}}>
+                        <div style={{fontSize:'11px',color:'#666',marginBottom:'5px'}}>テンプレートから読み込み ({availableTemplates.length}件):</div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'5px'}}>
+                          {availableTemplates.map(fileName=>(
+                            <button key={fileName} onClick={()=>loadExternalTemplate(fileName)} style={{padding:'8px',background:'#9c27b0',color:'white',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'11px',fontWeight:'bold',textAlign:'center'}}>{fileName.replace('.csv','')}</button>
                           ))}
                         </div>
-                        <p style={{fontSize: '10px', color: '#666', marginTop: '5px', textAlign: 'center'}}>
-                          ※タブ区切りとカンマ区切りの両方に対応
-                        </p>
                       </div>
                     )}
-                    
                     {availableTemplates.length === 0 && (
-                      <div style={{
-                        marginTop: '10px',
-                        padding: '10px',
-                        background: isDarkMode ? '#333' : '#f5f5f5',
-                        borderRadius: '8px',
-                        textAlign: 'center'
-                      }}>
-                        <p style={{fontSize: '11px', color: '#666', margin: 0}}>
-                          テンプレートファイルが見つかりません。<br/>
-                          テンプレートCSVファイルをサーバーにアップロードしてください。
-                        </p>
-                        <p style={{fontSize: '10px', color: '#888', margin: '5px 0 0 0'}}>
-                          利用可能なファイル名: template.csv, template1.csv, template2.csv, ...
-                        </p>
+                      <div style={{marginTop:'10px',padding:'10px',background:isDarkMode?'#333':'#f5f5f5',borderRadius:'8px',textAlign:'center'}}>
+                        <p style={{fontSize:'11px',color:'#666',margin:0}}>テンプレートファイルが見つかりません。</p>
                       </div>
                     )}
                   </div>
                 </div>
-
-                <div style={{
-                  marginBottom: '15px', 
-                  padding: '15px', 
-                  background: isDarkMode ? '#2a2a2a' : '#f9f9f9', 
-                  borderRadius: '12px',
-                  border: '1px solid ' + (isDarkMode ? '#444' : '#eee')
-                }}>
-                  <h4 style={{marginTop:0, marginBottom: '10px'}}>表示設定</h4>
-                  <label style={{fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between'}}>
-                    <span>サイトの幅</span>
-                    <b>{appWidth === '100%' ? 'フル画面' : appWidth}</b>
-                  </label>
-                  
-                  <input 
-                    type="range" 
-                    min="350" 
-                    max="1200" 
-                    step="10"
-                    value={appWidth === '100%' ? 1200 : parseInt(appWidth)} 
-                    onChange={(e) => setAppWidth(`${e.target.value}px`)}
-                    style={{
-                      width: '100%', 
-                      height: '30px', 
-                      cursor: 'pointer',
-                      accentColor: '#2196f3'
-                    }}
-                  />
-
-                  <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-                    <button onClick={() => setAppWidth('400px')} style={quickBtnStyle(isDarkMode)}>スマホ</button>
-                    <button onClick={() => setAppWidth('600px')} style={quickBtnStyle(isDarkMode)}>標準</button>
-                    <button onClick={() => setAppWidth('900px')} style={quickBtnStyle(isDarkMode)}>ワイド</button>
-                    <button onClick={() => setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px',border:'1px solid '+(isDarkMode?'#444':'#eee')}}>
+                  <h4 style={{marginTop:0,marginBottom:'10px'}}>表示設定</h4>
+                  <label style={{fontSize:'12px',color:'#888',display:'flex',justifyContent:'space-between'}}><span>サイトの幅</span><b>{appWidth==='100%'?'フル画面':appWidth}</b></label>
+                  <input type="range" min="350" max="1200" step="10" value={appWidth==='100%'?1200:parseInt(appWidth)} onChange={e=>setAppWidth(`${e.target.value}px`)} style={{width:'100%',height:'30px',cursor:'pointer',accentColor:'#2196f3'}} />
+                  <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
+                    <button onClick={()=>setAppWidth('400px')} style={quickBtnStyle(isDarkMode)}>スマホ</button>
+                    <button onClick={()=>setAppWidth('600px')} style={quickBtnStyle(isDarkMode)}>標準</button>
+                    <button onClick={()=>setAppWidth('900px')} style={quickBtnStyle(isDarkMode)}>ワイド</button>
+                    <button onClick={()=>setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
                   </div>
                 </div>
-                
                 <ul className="settings-list">
-                  <li onClick={resetAllOrder} style={{color: '#ff9800', fontWeight: 'bold'}}>🔄 すべての並び順をリセット</li>
+                  <li onClick={resetAllOrder} style={{color:'#ff9800',fontWeight:'bold'}}>🔄 すべての並び順をリセット</li>
                   <li onClick={handleCacheClear}>🗑️ キャッシュ（全データ）削除</li>
-                  <li onClick={() => alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>📜 規約</li>
-                  <li onClick={() => window.open("https://github.com/Meowx7", "_blank")}>🐱 GitHub</li>
-                  <li onClick={handleLogout} style={{color: '#ff5252', fontWeight: 'bold'}}>🚪 ログアウト</li>
-                  <li style={{color:'#888', cursor:'default', fontSize: '11px', justifyContent: 'center'}}>Version 1.6.1</li>
+                  <li onClick={()=>alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>📜 規約</li>
+                  <li onClick={()=>window.open("https://github.com/Meowx7","_blank")}>🐱 GitHub</li>
+                  <li onClick={handleLogout} style={{color:'#ff5252',fontWeight:'bold'}}>🚪 ログアウト</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 1.6.1</li>
                 </ul>
-                <button onClick={()=>setActiveModal(null)} style={{
-                  width:'100%', 
-                  padding:12, 
-                  background:'#eee', 
-                  border:'none', 
-                  borderRadius:8,
-                  fontWeight: 'bold',
-                  cursor: 'pointer'
-                }}>
-                  閉じる
-                </button>
+                <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
               </div>
             )}
             {activeModal === 'add_photo' && (
-              <div>
-                <h3>新規追加</h3>
-                <input type="text" placeholder="生写真セット名" id="modal_name" autoFocus />
-                <button onClick={() => {
-                  const v = document.getElementById("modal_name").value;
-                  if(v) { 
-                    const newItem = { 
-                      id: genId(), 
-                      group: selectedGroup, 
-                      member: selectedMember, 
-                      name: v, 
-                      yori: 0, 
-                      chuu: 0, 
-                      hiki: 0, 
-                      syori: 0, 
-                      schuu: 0, 
-                      shiki: 0, 
-                      isWish: false, 
-                      createdAt: Date.now(), 
-                      memo: "", 
-                      price: "", 
-                      source: "入手先", 
-                      thumbnail: "", 
-                      otherImages: [],
-                      order: items.length
-                    }; 
-                    setItems(p => [...p, newItem]); 
-                    setActiveModal(null); 
-                  }
-                }} style={{width:'100%', padding:12, background:'#2196f3', color:'#fff', border:'none', borderRadius:8, marginTop:10}}>追加</button>
-              </div>
+              <div><h3>新規追加</h3><input type="text" placeholder="生写真セット名" id="modal_name" autoFocus /><button onClick={()=>{const v=document.getElementById("modal_name").value;if(v){const newItem={id:genId(),group:selectedGroup,member:selectedMember,name:v,yori:0,chuu:0,hiki:0,syori:0,schuu:0,shiki:0,isWish:false,createdAt:Date.now(),memo:"",price:"",source:"入手先",thumbnail:"",otherImages:[],order:items.length};setItems(p=>[...p,newItem]);setActiveModal(null);}}} style={{width:'100%',padding:12,background:'#2196f3',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>追加</button></div>
             )}
             {activeModal === 'add_group' && (
-              <div>
-                <h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{
-                  if(e.key==='Enter'){
-                    const val = e.target.value.trim();
-                    if(!val) return showError("グループ名を入力してください");
-                    setGroups(p=>[...p,{name:val,members:[]}]); setActiveModal(null); 
-                  }
-                }} />
-              </div>
+              <div><h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim();if(!val)return showError("グループ名を入力してください");setGroups(p=>[...p,{name:val,members:[]}]);setActiveModal(null);}}}/></div>
             )}
             {activeModal === 'add_member' && (
-              <div>
-                <h3>メンバー追加</h3><input type="text" autoFocus onKeyDown={e=>{
-                  if(e.key==='Enter'){
-                    const val = e.target.value.trim();
-                    if(!val) return showError("名前を入力してください");
-                    setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:[...g.members,val]}:g)); setActiveModal(null);
-                  }
-                }} />
-              </div>
+              <div><h3>メンバー追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim();if(!val)return showError("名前を入力してください");setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:[...g.members,val]}:g));setActiveModal(null);}}}/></div>
             )}
             {activeModal === 'edit_img' && (
               <div>
                 <h3>画像管理</h3>
-                <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:10}}>
-                  {tempMainUrl && <div style={{position:'relative'}}><img src={tempMainUrl} style={{width:'100%', height:60, objectFit:'cover', borderRadius:4}}/><button onClick={()=>setTempMainUrl("")} style={{position:'absolute', top:0, right:0, background:'red', color:'white', border:'none'}}>×</button></div>}
-                  {tempImages.map((u,idx)=><div key={idx} style={{position:'relative'}}><img src={u} style={{width:'100%', height:60, objectFit:'cover', borderRadius:4}}/><button onClick={()=>setTempImages(p=>p.filter((_,i)=>i!==idx))} style={{position:'absolute', top:0, right:0, background:'red', color:'white', border:'none'}}>×</button></div>)}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:10}}>
+                  {tempMainUrl && <div style={{position:'relative'}}><img src={tempMainUrl} style={{width:'100%',height:60,objectFit:'cover',borderRadius:4}}/><button onClick={()=>setTempMainUrl("")} style={{position:'absolute',top:0,right:0,background:'red',color:'white',border:'none'}}>×</button></div>}
+                  {tempImages.map((u,idx)=><div key={idx} style={{position:'relative'}}><img src={u} style={{width:'100%',height:60,objectFit:'cover',borderRadius:4}}/><button onClick={()=>setTempImages(p=>p.filter((_,i)=>i!==idx))} style={{position:'absolute',top:0,right:0,background:'red',color:'white',border:'none'}}>×</button></div>)}
                 </div>
-                <label style={{display:'block', padding:10, background:'#2196f3', color:'white', textAlign:'center', borderRadius:8, cursor:'pointer', marginBottom:10}}>
-                  端末から選択<input type="file" multiple style={{display:'none'}} onChange={async(e)=>{
-                    const files = Array.from(e.target.files);
-                    for(const f of files){ const c = await compressImage(f); if(!tempMainUrl) setTempMainUrl(c); else setTempImages(p=>[...p,c]); }
-                  }}/>
+                <label style={{display:'block',padding:10,background:'#2196f3',color:'white',textAlign:'center',borderRadius:8,cursor:'pointer',marginBottom:10}}>
+                  端末から選択<input type="file" multiple style={{display:'none'}} onChange={async(e)=>{const files=Array.from(e.target.files);for(const f of files){const c=await compressImage(f);if(!tempMainUrl)setTempMainUrl(c);else setTempImages(p=>[...p,c]);}}}/>
                 </label>
-                <input type="text" placeholder="URLを貼り付けてEnter" onKeyDown={e=>{ if(e.key==='Enter' && e.target.value){ const urls = e.target.value.split(/[, \n]+/).filter(Boolean); urls.forEach(u => { if(!tempMainUrl) setTempMainUrl(u); else setTempImages(p=>[...p,u]); }); e.target.value=""; } }}/>
-                <button onClick={saveImages} style={{width:'100%', padding:12, background:'#4caf50', color:'#fff', border:'none', borderRadius:8, marginTop:10}}>保存</button>
+                <input type="text" placeholder="URLを貼り付けてEnter" onKeyDown={e=>{if(e.key==='Enter'&&e.target.value){const urls=e.target.value.split(/[, \n]+/).filter(Boolean);urls.forEach(u=>{if(!tempMainUrl)setTempMainUrl(u);else setTempImages(p=>[...p,u]);});e.target.value="";}}}/>
+                <button onClick={saveImages} style={{width:'100%',padding:12,background:'#4caf50',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>保存</button>
               </div>
             )}
             {activeModal === 'delete_group' && (
-              <div><h3>「{targetName}」を削除？</h3>
-                <button onClick={()=>{
-                  setItems(p=>p.filter(i=>i.group!==targetName)); setGroups(p=>p.filter(g=>g.name!==targetName));
-                  if(selectedGroup===targetName) {setSelectedGroup("ALL"); setSelectedMember("ALL");} setActiveModal(null);
-                }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
-              </div>
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.group!==targetName));setGroups(p=>p.filter(g=>g.name!==targetName));if(selectedGroup===targetName){setSelectedGroup("ALL");setSelectedMember("ALL");}setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
             )}
             {activeModal === 'delete_member' && (
-              <div><h3>「{targetName}」を削除？</h3>
-                <button onClick={()=>{
-                  setItems(p=>p.filter(i=>i.member!==targetName)); setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:g.members.filter(m=>m!==targetName)}:g));
-                  if(selectedMember===targetName) setSelectedMember("ALL"); setActiveModal(null);
-                }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
-              </div>
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.member!==targetName));setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:g.members.filter(m=>m!==targetName)}:g));if(selectedMember===targetName)setSelectedMember("ALL");setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
             )}
             {activeModal === 'delete_photo' && (
-              <div><h3>「{targetName}」を削除？</h3>
-                <button onClick={()=>{
-                  setItems(p=>p.filter(i=>i.id!==targetId));
-                  setActiveModal(null);
-                }} style={{width:'100%', padding:12, background:'#ff5252', color:'#fff', border:'none', borderRadius:8}}>削除</button>
-              </div>
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.id!==targetId));setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
             )}
             {activeModal === 'delete_batch' && (
-              <div><h3>{targetName}を削除？</h3>
-                <button onClick={()=>{
-                  setItems(p => p.filter(i => !selectedItemIds.includes(i.id)));
-                  setSelectedItemIds([]);
-                  setActiveModal(null);
-                }} style={{width:'100%', padding:12, background:'#000', color:'#fff', border:'none', borderRadius:8}}>一括削除を実行</button>
-              </div>
+              <div><h3>{targetName}を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>!selectedItemIds.includes(i.id)));setSelectedItemIds([]);setActiveModal(null);}} style={{width:'100%',padding:12,background:'#000',color:'#fff',border:'none',borderRadius:8}}>一括削除を実行</button></div>
             )}
           </div>
         </div>
