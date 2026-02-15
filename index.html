@@ -13,7 +13,7 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- SortableJS -->
+  <!-- SortableJS (スマホ最適化ドラッグ) -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
   
   <link rel="stylesheet" href="style.css" />
@@ -24,7 +24,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   
   <script>
-    // Firebase の設定（ご自身のものに変更してください）
+    // Firebase 設定（ご自身のものに変更してください）
     const firebaseConfig = {
       apiKey: "AIzaSyC183tcN__mG5zNx2FG__9g3zkZWpszJ_k",
       authDomain: "picturemanager-f139d.firebaseapp.com",
@@ -263,12 +263,12 @@ function App() {
     setAvailableTemplates(existing);
   }, []);
 
-  // Firebaseログイン状態監視（確実に実行されるよう修正）
+  // Firebaseログイン状態監視（確実に実行）
   useEffect(() => {
     if (!window.fb || !window.fb.auth) {
       console.error("Firebaseが初期化されていません");
       setAuthError("Firebase initialization failed");
-      setIsAuthReady(true); // エラーでもUIを表示
+      setIsAuthReady(true);
       return;
     }
     
@@ -277,7 +277,7 @@ function App() {
       (currentUser) => {
         console.log("Auth state changed:", currentUser ? currentUser.email : "null");
         setUser(currentUser);
-        setIsAuthReady(true); // 必ず準備完了にする
+        setIsAuthReady(true);
         if (currentUser) {
           loadFromFirestore(currentUser.uid);
           loadShareLists(currentUser.uid);
@@ -287,7 +287,7 @@ function App() {
       (error) => {
         console.error("Auth error:", error);
         setAuthError(error.message);
-        setIsAuthReady(true); // エラーでも準備完了
+        setIsAuthReady(true);
       }
     );
     
@@ -338,7 +338,7 @@ function App() {
     const itemsToShare = items
       .filter(i => selectedItemIds.includes(i.id))
       .map(i => {
-        const { id, ...rest } = i;
+        const { id, ...rest } = i; // IDはコピーしない
         return cleanData(rest);
       });
     const shareData = {
@@ -507,7 +507,7 @@ function App() {
     }));
   };
 
-  // SortableJSのセットアップ
+  // SortableJSのセットアップ（スマホ最適化）
   useEffect(() => {
     if (!isManageMode || sortBy !== "manual" || !listContainerRef.current || viewingShareId) {
       if (sortableInstance.current) {
@@ -703,7 +703,7 @@ function App() {
   const saveImages = () => { setItems(p => p.map(it => it.id===editItemId ? {...it, thumbnail: tempMainUrl, otherImages: tempImages} : it)); setActiveModal(null); };
   const handleCacheClear = () => { if(confirm("全データを削除しますか？")) { localStorage.removeItem(STORAGE_KEY); location.reload(); } };
 
-  // ログイン準備中の表示（デバッグ情報付き）
+  // ログイン準備中の表示
   if (!isAuthReady) {
     return (
       <div style={{display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',height:'100vh',background: isDarkMode ? '#1a1a1a' : '#f5f5f5', gap:'10px'}}>
@@ -826,12 +826,12 @@ function App() {
     );
   }
 
-  // 通常の管理画面（以下、従来通り）
-  // ...（省略せずに完全なコードをここに含める必要がありますが、スペースの都合で割愛します。実際に使用する際は、これまでの完全な管理画面コードを挿入してください）
-  // 実際のプロダクションコードでは、この部分にすべてのJSXを記述します。
-  // ここでは簡略化のため、最低限の表示としています。実際には前回までの完全な管理画面をコピーしてください。
+  // 通常の管理画面
   return (
     <div className={isDarkMode?"dark-mode":""} style={{maxWidth:appWidth,margin:'0 auto',minHeight:'100vh'}}>
+      {errorMsg && <div className="error-toast">⚠️ {errorMsg}</div>}
+      {isLoading && <div className="loading-overlay"><div className="loading-spinner"></div><div className="loading-text">同期中...</div></div>}
+
       <div className="top-bar">
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <h3 style={{margin:0,fontSize:'16px'}}>生写真管理For=Love</h3>
@@ -848,10 +848,354 @@ function App() {
           <button onClick={()=>setIsDarkMode(!isDarkMode)} style={{padding:'6px 8px',background:isDarkMode?'#2a2a2a':'#f5f5f5',border:isDarkMode?'1px solid #444':'1px solid #ddd',borderRadius:'6px',cursor:'pointer',fontSize:'16px'}}>{isDarkMode?"☀️":"🌙"}</button>
         </div>
       </div>
+
       <div className="main-layout">
-        <p>管理画面が表示されるはずです。</p>
-        <p>ログインユーザー: {user.displayName}</p>
+        {isManageMode && sortBy === "manual" && (
+          <div className="sort-helper">
+            <span className="sort-hint">✨ ハンドル（⋮⋮）を長押ししてドラッグ<br /><small>アイテムの間に入れられます</small></span>
+            <button className="reset-order-btn" onClick={resetOrder}>🔄 現在の並び順をリセット</button>
+          </div>
+        )}
+        
+        <div className="stats-card">
+          <div className="stats-charts-grid">
+            <div className="stats-box">
+              <div className="stats-label">収集率</div>
+              <div className="progress-circle-container">
+                <div className="progress-circle-bg"></div>
+                <div className="progress-circle" style={{background:`conic-gradient(${isDarkMode?'var(--color-primary)':'var(--light-primary)'} 0% ${stats.totalSlots?Math.round(stats.collectedSlots/stats.totalSlots*100):0}%, transparent ${stats.totalSlots?Math.round(stats.collectedSlots/stats.totalSlots*100):0}% 100%)`}}></div>
+                <div className="progress-circle-mask"><span className="progress-percentage">{stats.totalSlots?Math.round(stats.collectedSlots/stats.totalSlots*100):0}%</span></div>
+              </div>
+              <div className="stats-fraction">{stats.collectedSlots} / {stats.totalSlots}</div>
+            </div>
+            <div className="stats-box">
+              <div className="stats-label">コンプリート率</div>
+              <div className="progress-circle-container">
+                <div className="progress-circle-bg"></div>
+                <div className="progress-circle" style={{background:`conic-gradient(${isDarkMode?'var(--color-success)':'var(--light-success)'} 0% ${stats.totalKinds?Math.round(stats.completedKinds/stats.totalKinds*100):0}%, transparent ${stats.totalKinds?Math.round(stats.completedKinds/stats.totalKinds*100):0}% 100%)`}}></div>
+                <div className="progress-circle-mask"><span className="progress-percentage">{stats.totalKinds?Math.round(stats.completedKinds/stats.totalKinds*100):0}%</span></div>
+              </div>
+              <div className="stats-fraction">{stats.completedKinds} / {stats.totalKinds}</div>
+            </div>
+          </div>
+          <div className="stats-summary">
+            <div className="stat-item"><span className="stat-value">{stats.totalKinds}</span><span className="stat-label">総写真数</span></div>
+            <div className="stat-item"><span className="stat-value">{stats.collectedSlots}</span><span className="stat-label">収集済み</span></div>
+            <div className="stat-item"><span className="stat-value">{stats.completedKinds}</span><span className="stat-label">コンプリート</span></div>
+          </div>
+        </div>
+
+        <div className="control-panel">
+          <div className="control-header">
+            <div><strong>管理モード</strong>{isManageMode && <span className="manage-mode-badge">ON</span>}</div>
+            <button className="manage-toggle" onClick={()=>setIsManageMode(!isManageMode)} style={{color:isManageMode?'#ff5252':''}}>✏️</button>
+          </div>
+          <div className="filter-row">
+            <input className="search-input" placeholder="名前またはタグで検索..." value={search} onChange={e=>setSearch(e.target.value)} />
+            <button className={`wish-toggle-btn ${showOnlyWish?'active':''}`} onClick={()=>setShowOnlyWish(!showOnlyWish)}>⭐ のみ</button>
+            <select className="sort-select" value={sortBy} onChange={e=>setSortBy(e.target.value)}>
+              <option value="manual">手動並び替え</option>
+              <option value="new">新しい順</option>
+              <option value="old">古い順</option>
+              <option value="name">名前順</option>
+              <option value="price_high">価格が高い順</option>
+              <option value="stock_high">在庫が多い順</option>
+              <option value="comp_first">コンプリート優先</option>
+            </select>
+          </div>
+
+          <div className="group-section">
+            <div className="section-title"><strong>グループ選択</strong><button className="add-btn" onClick={()=>setActiveModal('add_group')}>+</button></div>
+            <ul className="button-list">
+              <li><button className={`btn-item ${selectedGroup==='ALL'?'active':''}`} onClick={()=>{setSelectedGroup('ALL');setSelectedMember('ALL');}}>ALL</button></li>
+              {groups.map(g=>(
+                <li key={g.name}>
+                  <button className={`btn-item ${selectedGroup===g.name?'active':''}`} onClick={()=>{setSelectedGroup(g.name);setSelectedMember(g.members.length?g.members[0]:'ALL');}}>
+                    {g.name}{isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(g.name);setActiveModal('delete_group');}}>×</button>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="member-section">
+            <div className="section-title"><strong>メンバー選択</strong>{selectedGroup!=='ALL'&&selectedGroup&&<button className="add-btn" onClick={()=>setActiveModal('add_member')}>+</button>}</div>
+            <ul className="button-list">
+              <li><button className={`btn-item ${selectedMember==='ALL'?'active':''}`} onClick={()=>setSelectedMember('ALL')}>ALL</button></li>
+              {selectedGroup!=='ALL' && groups.find(g=>g.name===selectedGroup)?.members.map(m=>(
+                <li key={m}>
+                  <button className={`btn-item ${selectedMember===m?'active':''}`} onClick={()=>setSelectedMember(m)}>
+                    {m}{isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(m);setActiveModal('delete_member');}}>×</button>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {selectedGroup !== "ALL" && selectedMember !== "ALL" && (
+          <button className="add-trigger-btn" onClick={()=>setActiveModal('add_photo')}>＋ 生写真を追加</button>
+        )}
+
+        {/* ソート可能なリストコンテナ */}
+        <div ref={listContainerRef} style={isManageMode && sortBy==="manual" ? { minHeight: '50px' } : {}}>
+          {sortedItems.map(i => {
+            const comp = (i.yori>0||i.syori>0) && (i.chuu>0||i.schuu>0) && (i.hiki>0||i.shiki>0);
+            const isSelected = selectedItemIds.includes(i.id);
+            const isSignExpanded = expandedSignItems.includes(i.id);
+            return (
+              <div key={i.id} data-item-id={i.id} className={`photo-card ${comp?'is-complete':''} ${i.isWish?'is-wish':''}`} style={{background: isManageMode && isSelected ? 'rgba(255,82,82,0.1)' : ''}}>
+                {isManageMode && sortBy === "manual" && (
+                  <div className="drag-handle" title="長押ししてドラッグ">⋮⋮</div>
+                )}
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+                  {isManageMode && <input type="checkbox" className="selection-checkbox" checked={isSelected} onChange={()=>toggleSelectItem(i.id)} />}
+                  <div className="img-container">
+                    <div className="btn-img-add" onClick={()=>openEditImgModal(i)}>＋</div>
+                    <div style={{width:65,cursor:'pointer'}} onClick={()=>{
+                      const imgs = [i.thumbnail, ...(i.otherImages||[])].filter(Boolean);
+                      if(imgs.length) setViewer({images:imgs,index:0,name:i.name}); else openEditImgModal(i);
+                    }}>
+                      {i.thumbnail ? <img src={i.thumbnail} style={{width:'100%',borderRadius:4}} /> : <div style={{background:'#eee',height:60,borderRadius:4,fontSize:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#888'}}>画像なし</div>}
+                    </div>
+                  </div>
+                </div>
+                <div className="card-content">
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div style={{flex:1,minWidth:0,display:'flex',alignItems:'center',gap:8}}>
+                      <button className={`wish-toggle ${i.isWish?'active':''}`} onClick={()=>updateItem(i.id,'isWish',!i.isWish)}>⭐</button>
+                      {editingNameId===i.id ? (
+                        <input className="edit-name-input" autoFocus value={i.name} onChange={e=>updateItem(i.id,'name',e.target.value)} onBlur={()=>setEditingNameId(null)} onKeyDown={e=>e.key==='Enter'&&setEditingNameId(null)} />
+                      ) : (
+                        <span className="name-display" onClick={()=>setEditingNameId(i.id)}>{i.name} {comp && "👍️"}</span>
+                      )}
+                    </div>
+                    <button onClick={()=>{setTargetName(i.name);setTargetId(i.id);setActiveModal('delete_photo');}} style={{color:'#999',border:'none',background:'none',cursor:'pointer'}}>✕</button>
+                  </div>
+                  
+                  {/* タグ表示エリア */}
+                  <div className="tags-container" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                    {(i.tags || []).map(tag => (
+                      <span key={tag} className="tag-badge" style={{ background: isDarkMode?'#444':'#e0e0e0', padding:'2px 8px', borderRadius:'12px', fontSize:'11px', display:'inline-flex', alignItems:'center' }}>
+                        #{tag}
+                        {isManageMode && <button onClick={()=>removeTag(i.id, tag)} style={{ marginLeft:'4px', background:'none', border:'none', color:'#999', cursor:'pointer' }}>×</button>}
+                      </span>
+                    ))}
+                    {isManageMode && (
+                      <form onSubmit={(e)=>{ e.preventDefault(); const input = e.target.elements.tag; if(input.value){ addTag(i.id, input.value); input.value=''; } }} style={{ display:'inline-flex' }}>
+                        <input type="text" name="tag" placeholder="タグ追加" style={{ width:'80px', fontSize:'11px', padding:'2px 4px', borderRadius:'12px', border:'1px solid #ccc' }} />
+                      </form>
+                    )}
+                  </div>
+
+                  <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
+                    {[{k:'yori',l:'寄'},{k:'chuu',l:'中'},{k:'hiki',l:'引'}].map(o=>(
+                      <div key={o.k} className={`counter-group ${i[o.k]>0?'has-stock':''}`}>
+                        <span style={{fontSize:9,padding:'0 4px',fontWeight:'bold'}}>{o.l}</span>
+                        <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,Math.max(0,(i[o.k]||0)-1))}>-</button>
+                        <span className="qty-val">{i[o.k]||0}</span>
+                        <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,(i[o.k]||0)+1)}>+</button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="sign-counters-container">
+                    <button className={`sign-counters-toggle ${isSignExpanded?'active':''}`} onClick={()=>toggleSignCounters(i.id)}>サイン付きカウンター</button>
+                    <div className={`sign-counters-content ${isSignExpanded?'expanded':''}`}>
+                      {[{k:'syori',l:'サイン寄'},{k:'schuu',l:'サイン中'},{k:'shiki',l:'サイン引'}].map(o=>(
+                        <div key={o.k} className={`counter-group ${i[o.k]>0?'has-sign':''}`}>
+                          <span style={{fontSize:9,padding:'0 4px',fontWeight:'bold'}}>{o.l}</span>
+                          <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,Math.max(0,(i[o.k]||0)-1))}>-</button>
+                          <span className="qty-val">{i[o.k]||0}</span>
+                          <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,(i[o.k]||0)+1)}>+</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="row-inputs" style={{flexWrap:'wrap',gap:'8px',marginTop:'8px'}}>
+                    <select className="source-select" value={i.source||"入手先"} onChange={e=>updateItem(i.id,'source',e.target.value)} style={{height:'36px'}}>
+                      {SOURCE_OPTIONS.map(opt=><option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                    <input className="details-input" style={{flex:'1 1 150px',height:'36px'}} placeholder="メモ" value={i.memo||""} onChange={e=>updateItem(i.id,'memo',e.target.value)} />
+                    <div className="price-wrapper">
+                      <input className="details-input" style={{width:'100%'}} placeholder="価格" value={formatWithComma(i.price)} onChange={e=>updateItem(i.id,'price',e.target.value.replace(/\D/g,'').slice(0,7))} />
+                      <span className="currency-unit">円</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {isManageMode && sortedItems.length > 0 && (
+        <div className="selection-bar">
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <input type="checkbox" className="selection-checkbox" checked={selectedItemIds.length>0 && selectedItemIds.length===sortedItems.length} onChange={e=>{if(e.target.checked) setSelectedItemIds(sortedItems.map(it=>it.id)); else setSelectedItemIds([]);}} />
+            <span style={{fontSize:12,fontWeight:'bold'}}>{selectedItemIds.length}件選択中</span>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <button className="batch-btn" onClick={()=>batchAction('wish')}>一括お気に入り</button>
+            <button className="batch-btn" onClick={()=>batchAction('stock')}>すべて+1</button>
+            <button className="batch-btn" style={{background:'#000'}} onClick={()=>batchAction('delete')}>削除</button>
+          </div>
+        </div>
+      )}
+
+      {viewer && (
+        <div className="lightbox" onClick={()=>setViewer(null)}>
+          <div className="lightbox-close">×</div>
+          <img src={viewer.images[viewer.index]} onClick={e=>{e.stopPropagation(); setViewer({...viewer, index:(viewer.index+1)%viewer.images.length});}} />
+          <div className="lightbox-info"><strong>{viewer.name}</strong><br/>{viewer.index+1} / {viewer.images.length}</div>
+        </div>
+      )}
+
+      {activeModal && (
+        <div className="modal-overlay" onClick={()=>setActiveModal(null)}>
+          <div className="modal-content" onClick={e=>e.stopPropagation()}>
+            {activeModal === 'app_settings' && (
+              <div>
+                <h3>設定</h3>
+                {user && (
+                  <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'10px'}}>
+                      <img src={user.photoURL} alt="avatar" style={{width:40,height:40,borderRadius:'50%'}} />
+                      <div><div style={{fontWeight:'bold'}}>{user.displayName}</div><div style={{fontSize:'11px',color:'#666'}}>{user.email}</div></div>
+                    </div>
+                    {lastSaved && <div style={{fontSize:'12px',color:'#4caf50',textAlign:'center'}}>✓ 最終保存: {lastSaved}</div>}
+                  </div>
+                )}
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>クラウド同期</h4>
+                  <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
+                    <button onClick={handleManualSave} style={{flex:1,padding:'10px',background:'#4caf50',color:'white',border:'none',borderRadius:'8px'}}>💾 手動保存</button>
+                    <button onClick={handleManualLoad} style={{flex:1,padding:'10px',background:'#2196f3',color:'white',border:'none',borderRadius:'8px'}}>🔄 手動読込</button>
+                  </div>
+                </div>
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>データ操作</h4>
+                  <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+                    <button onClick={handleCSVExport} style={{padding:'10px',background:'#ff9800',color:'white',border:'none',borderRadius:'8px'}}>📤 CSV出力</button>
+                    <button onClick={handleTSVExport} style={{padding:'10px',background:'#9c27b0',color:'white',border:'none',borderRadius:'8px'}}>📤 TSV出力</button>
+                    <label style={{padding:'10px',background:'#2196f3',color:'white',border:'none',borderRadius:'8px',textAlign:'center',cursor:'pointer'}}>
+                      📥 CSV/TSV取込<input type="file" accept=".csv,.tsv,.txt" style={{display:'none'}} onChange={handleImportCSV} />
+                    </label>
+                    {availableTemplates.length>0 && (
+                      <div style={{marginTop:'10px'}}>
+                        <div style={{fontSize:'11px'}}>テンプレート:</div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'5px'}}>
+                          {availableTemplates.map(f=>(
+                            <button key={f} onClick={()=>loadExternalTemplate(f)} style={{padding:'8px',background:'#9c27b0',color:'white',border:'none',borderRadius:'6px'}}>{f.replace('.csv','')}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* 共有機能パネル */}
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>共有リスト</h4>
+                  <div style={{marginBottom:'10px'}}>
+                    <button onClick={()=> {
+                      if (selectedItemIds.length === 0) { showError("アイテムを選択してください"); return; }
+                      const name = prompt("リスト名を入力（省略可）");
+                      createShareListWithItems(name || "共有リスト", selectedItemIds);
+                    }} style={{padding:'8px 16px',background:'#3f51b5',color:'white',border:'none',borderRadius:'8px',width:'100%'}}>
+                      🔗 選択中のアイテムで共有リスト作成
+                    </button>
+                  </div>
+                  <div>
+                    <h5>作成済みリスト</h5>
+                    {shareLists.length === 0 && <p style={{fontSize:'12px',color:'#888'}}>まだありません</p>}
+                    {shareLists.map(list => (
+                      <div key={list.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',padding:'8px',background:isDarkMode?'#333':'#eee',borderRadius:'6px'}}>
+                        <span style={{fontSize:'12px'}}>{list.listName || '無題'}</span>
+                        <button onClick={() => {
+                          const url = window.location.origin + window.location.pathname + '?share=' + list.id;
+                          navigator.clipboard.writeText(url);
+                          showError("URLをコピーしました");
+                        }} style={{padding:'4px 8px',background:'#2196f3',color:'white',border:'none',borderRadius:'4px',fontSize:'11px'}}>URLコピー</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* リクエスト一覧 */}
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>リクエスト受信箱</h4>
+                  {requests.length === 0 && <p style={{fontSize:'12px',color:'#888'}}>リクエストはありません</p>}
+                  {requests.map(req => (
+                    <div key={req.id} style={{marginBottom:'8px',padding:'8px',background:isDarkMode?'#333':'#eee',borderRadius:'6px'}}>
+                      <div style={{fontSize:'12px'}}><strong>{req.requesterName}</strong> さんがアイテムをリクエスト</div>
+                      <div style={{fontSize:'11px',color:'#666'}}>ステータス: {req.status}</div>
+                      {req.status === 'pending' && (
+                        <div style={{display:'flex',gap:'4px',marginTop:'4px'}}>
+                          <button onClick={()=> updateRequestStatus(req.id, 'approved')} style={{padding:'4px 8px',background:'#4caf50',color:'white',border:'none',borderRadius:'4px'}}>承認</button>
+                          <button onClick={()=> updateRequestStatus(req.id, 'rejected')} style={{padding:'4px 8px',background:'#f44336',color:'white',border:'none',borderRadius:'4px'}}>拒否</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>表示設定</h4>
+                  <label style={{display:'flex',justifyContent:'space-between',fontSize:'12px'}}><span>サイトの幅</span><b>{appWidth==='100%'?'フル画面':appWidth}</b></label>
+                  <input type="range" min="350" max="1200" step="10" value={appWidth==='100%'?1200:parseInt(appWidth)} onChange={e=>setAppWidth(`${e.target.value}px`)} style={{width:'100%',accentColor:'#2196f3'}} />
+                  <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
+                    {['400px','600px','900px','100%'].map(w=><button key={w} onClick={()=>setAppWidth(w)} style={quickBtnStyle(isDarkMode)}>{w==='100%'?'フル':w}</button>)}
+                  </div>
+                </div>
+                <ul className="settings-list">
+                  <li onClick={resetAllOrder} style={{color:'#ff9800'}}>🔄 すべての並び順リセット</li>
+                  <li onClick={handleCacheClear}>🗑️ キャッシュ削除</li>
+                  <li onClick={()=>alert("規約：個人利用のため、責任は負いかねます。")}>📜 規約</li>
+                  <li onClick={()=>window.open("https://github.com/Meowx7")}>🐱 GitHub</li>
+                  <li onClick={handleLogout} style={{color:'#ff5252'}}>🚪 ログアウト</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.2.0 (完全版)</li>
+                </ul>
+                <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold'}}>閉じる</button>
+              </div>
+            )}
+            {activeModal === 'add_photo' && (
+              <div><h3>新規追加</h3><input type="text" id="modal_name" autoFocus /><button onClick={()=>{const v=document.getElementById('modal_name').value; if(v){ const newItem={id:genId(),group:selectedGroup,member:selectedMember,name:v,yori:0,chuu:0,hiki:0,syori:0,schuu:0,shiki:0,isWish:false,createdAt:Date.now(),memo:'',price:'',source:'入手先',thumbnail:'',otherImages:[],tags:[],order:items.length}; setItems(p=>[...p,newItem]); setActiveModal(null); }}} style={{width:'100%',padding:12,background:'#2196f3',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>追加</button></div>
+            )}
+            {activeModal === 'add_group' && (
+              <div><h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim(); if(!val) return showError("入力してください"); setGroups(p=>[...p,{name:val,members:[]}]); setActiveModal(null); }}}/></div>
+            )}
+            {activeModal === 'add_member' && (
+              <div><h3>メンバー追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim(); if(!val) return showError("入力してください"); setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:[...g.members,val]}:g)); setActiveModal(null); }}}/></div>
+            )}
+            {activeModal === 'edit_img' && (
+              <div>
+                <h3>画像管理</h3>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:10}}>
+                  {tempMainUrl && <div style={{position:'relative'}}><img src={tempMainUrl} style={{width:'100%',height:60,objectFit:'cover',borderRadius:4}}/><button onClick={()=>setTempMainUrl("")} style={{position:'absolute',top:0,right:0,background:'red',color:'white',border:'none'}}>×</button></div>}
+                  {tempImages.map((u,idx)=><div key={idx} style={{position:'relative'}}><img src={u} style={{width:'100%',height:60,objectFit:'cover',borderRadius:4}}/><button onClick={()=>setTempImages(p=>p.filter((_,i)=>i!==idx))} style={{position:'absolute',top:0,right:0,background:'red',color:'white',border:'none'}}>×</button></div>)}
+                </div>
+                <label style={{display:'block',padding:10,background:'#2196f3',color:'white',textAlign:'center',borderRadius:8,cursor:'pointer',marginBottom:10}}>
+                  端末から選択<input type="file" multiple style={{display:'none'}} onChange={async(e)=>{const files=Array.from(e.target.files); for(const f of files){ const c=await compressImage(f); if(!tempMainUrl) setTempMainUrl(c); else setTempImages(p=>[...p,c]); }}}/>
+                </label>
+                <input type="text" placeholder="URLを貼り付け" onKeyDown={e=>{if(e.key==='Enter' && e.target.value){ const urls=e.target.value.split(/[, \n]+/).filter(Boolean); urls.forEach(u=>{if(!tempMainUrl) setTempMainUrl(u); else setTempImages(p=>[...p,u]);}); e.target.value=""; }}}/>
+                <button onClick={saveImages} style={{width:'100%',padding:12,background:'#4caf50',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>保存</button>
+              </div>
+            )}
+            {activeModal === 'delete_group' && (
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.group!==targetName)); setGroups(p=>p.filter(g=>g.name!==targetName)); if(selectedGroup===targetName){setSelectedGroup("ALL");setSelectedMember("ALL");} setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
+            )}
+            {activeModal === 'delete_member' && (
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.member!==targetName)); setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:g.members.filter(m=>m!==targetName)}:g)); if(selectedMember===targetName) setSelectedMember("ALL"); setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
+            )}
+            {activeModal === 'delete_photo' && (
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.id!==targetId)); setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
+            )}
+            {activeModal === 'delete_batch' && (
+              <div><h3>{targetName}を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>!selectedItemIds.includes(i.id))); setSelectedItemIds([]); setActiveModal(null);}} style={{width:'100%',padding:12,background:'#000',color:'#fff',border:'none',borderRadius:8}}>一括削除</button></div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
