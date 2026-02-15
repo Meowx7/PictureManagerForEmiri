@@ -2804,3 +2804,107 @@ body.dragging-active {
 .photo-card.is-dragging {
   transition: opacity 0.1s ease, transform 0.1s ease;
 }
+
+
+
+
+/* ---------- スマホ・タッチデバイス完全対応 ---------- */
+@media (max-width: 768px) {
+  .drag-handle {
+    left: -15px;
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+    opacity: 0.8;
+    z-index: 20;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd;
+  }
+  .dark-mode .drag-handle {
+    background: rgba(30, 30, 30, 0.9);
+    border-color: #444;
+  }
+  .photo-card[draggable="true"] {
+    touch-action: pan-y;
+    cursor: grab;
+  }
+  .photo-card.is-dragging {
+    opacity: 0.5 !important;
+    box-shadow: 0 5px 15px rgba(33, 150, 243, 0.5);
+    transform: scale(1.02);
+    z-index: 1000;
+  }
+  .drag-hint {
+    top: 70px;
+    font-size: 11px;
+    padding: 8px 12px;
+    max-width: 85%;
+    background: rgba(0,0,0,0.8);
+    border-radius: 20px;
+  }
+  .speed-control {
+    top: 70px !important;
+    left: 5px !important;
+    transform: scale(0.9);
+  }
+  .scroll-indicator {
+    font-size: 10px;
+    padding: 6px 12px;
+  }
+  .selection-bar {
+    padding: 10px 12px;
+  }
+  .btn-qty {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+  .photo-card.is-dragging::after {
+    border-width: 3px;
+  }
+}
+@media (hover: none) and (pointer: coarse) {
+  .photo-card:hover {
+    box-shadow: 0 2px 6px var(--light-shadow);
+  }
+  .dark-mode .photo-card:hover {
+    box-shadow: 0 2px 6px var(--color-shadow);
+  }
+  .drag-handle:hover {
+    opacity: 0.8;
+    transform: translateY(-50%) scale(1);
+  }
+  .btn-item:hover,
+  .add-btn:hover,
+  .batch-btn:hover,
+  .wish-toggle-btn:hover {
+    transform: none;
+  }
+}
+@media (max-width: 360px) {
+  .drag-handle {
+    left: -12px;
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+  .speed-control {
+    top: 65px !important;
+    left: 2px !important;
+    transform: scale(0.8);
+  }
+  .drag-hint {
+    top: 65px;
+    font-size: 10px;
+    padding: 6px 10px;
+  }
+  .photo-card {
+    padding: 10px;
+  }
+}
+.photo-card {
+  transition: opacity 0.25s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.photo-card.is-dragging {
+  transition: opacity 0.1s ease, transform 0.1s ease;
+}
