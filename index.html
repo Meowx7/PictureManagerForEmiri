@@ -5,17 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
   <title>生写真管理For=Love</title>
 
+  <!-- PWA: マニフェストファイル -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <meta name="theme-color" content="#2196f3" />
+
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- SortableJS (スマホ最適化ドラッグ＆ドロップ) -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
   
-  <!-- スタイルシート（後述の追加CSSをstyle.cssに必ず追記してください） -->
   <link rel="stylesheet" href="style.css" />
   
-  <!-- FirebaseとGoogleログイン -->
+  <!-- Firebase -->
   <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, addDoc, query, where, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
   import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
   const firebaseConfig = {
@@ -31,10 +37,21 @@
     db: getFirestore(app),
     auth: getAuth(app),
     provider: new GoogleAuthProvider(),
-    doc, setDoc, onSnapshot, signInWithPopup, signOut, onAuthStateChanged, getDoc
+    doc, setDoc, signInWithPopup, signOut, onAuthStateChanged, getDoc,
+    collection, addDoc, query, where, getDocs, deleteDoc
   };
 </script>
 
+<!-- サービスワーカー登録 (PWA) -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('ServiceWorker registered:', reg))
+        .catch(err => console.error('ServiceWorker error:', err));
+    });
+  }
+</script>
 </head>
 <body>
   <div id="root"></div>
@@ -43,177 +60,79 @@
   const { useState, useEffect, useCallback, useMemo, useRef } = React;
 const STORAGE_KEY = "photocard_inventory_v4_manage_drag";
 const genId = () => 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+const genShareId = () => 'share_' + Math.random().toString(36).substr(2, 9);
 const SOURCE_OPTIONS = ["入手先", "メルカリ", "自引き", "店舗", "譲渡", "その他"];
-
 const DEFAULT_GROUPS = [{ name: "=Love", members: ["大谷映美里"] }];
+const AVAILABLE_TEMPLATES = ['template.csv','template1.csv','template2.csv','template3.csv','template4.csv','template5.csv'];
 
-// 利用可能なテンプレートファイルのリスト
-const AVAILABLE_TEMPLATES = [
-  'template.csv',
-  'template1.csv',
-  'template2.csv', 
-  'template3.csv',
-  'template4.csv',
-  'template5.csv'
-];
+const formatWithComma = (val) => val ? val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "";
 
-const formatWithComma = (val) => {
-  if (!val) return "";
-  return val.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
-
-// CSVパーサー関数
 function parseCSV(text, delimiter = '\t') {
   if (!text) return [];
-  const rows = []; 
-  let row = []; 
-  let field = ''; 
-  let inQuotes = false;
-  
+  const rows = []; let row = []; let field = ''; let inQuotes = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i], next = text[i+1];
-    
     if (inQuotes) {
-      if (c === '"' && next === '"') { 
-        field += '"'; 
-        i++; 
-      } else if (c === '"') {
-        inQuotes = false;
-      } else {
-        field += c;
-      }
+      if (c === '"' && next === '"') { field += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else field += c;
     } else {
-      if (c === '"') {
-        inQuotes = true;
-      } else if (c === delimiter) { 
-        row.push(field.trim()); 
-        field = ''; 
-      } else if (c === '\n' || c === '\r') {
-        if (field || row.length) { 
-          row.push(field.trim()); 
-          rows.push(row); 
-        }
-        row = []; 
-        field = ''; 
+      if (c === '"') inQuotes = true;
+      else if (c === delimiter) { row.push(field.trim()); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (field || row.length) { row.push(field.trim()); rows.push(row); }
+        row = []; field = '';
         if (c === '\r' && next === '\n') i++;
-      } else {
-        field += c;
-      }
+      } else field += c;
     }
   }
-  
-  if (field || row.length) { 
-    row.push(field.trim()); 
-    rows.push(row); 
-  }
-  
+  if (field || row.length) { row.push(field.trim()); rows.push(row); }
   return rows;
 }
 
-// タブ区切りCSVをアイテムに変換
 const parseTabCSVRowToItem = (row, selectedGroup, selectedMember, index = 0) => {
   if (!row || row.length < 2) return null;
-  
   const now = Date.now();
-  const createdAt = now - index;
-  
   const thumbnail = row[0] || "";
   const name = row[1] || "名称なし";
   let otherImages = [];
-  
   if (row.length > 2 && row[2]) {
     const imagesText = row[2].replace(/"/g, '').trim();
-    if (imagesText) {
-      otherImages = imagesText.split(/\r?\n/).map(url => url.trim()).filter(url => url);
-    }
+    if (imagesText) otherImages = imagesText.split(/\r?\n/).map(u => u.trim()).filter(Boolean);
   }
-  
   return {
-    id: genId(),
-    group: selectedGroup,
-    member: selectedMember,
-    name: name,
-    thumbnail: thumbnail,
-    otherImages: otherImages,
-    yori: 0, 
-    chuu: 0, 
-    hiki: 0,
-    syori: 0,
-    schuu: 0,
-    shiki: 0,
-    memo: "",
-    price: "",
-    source: "入手先",
-    isWish: false,
-    createdAt,
-    order: index
+    id: genId(), group: selectedGroup, member: selectedMember, name, thumbnail, otherImages,
+    yori:0, chuu:0, hiki:0, syori:0, schuu:0, shiki:0, memo:"", price:"", source:"入手先", isWish:false,
+    tags: [],
+    createdAt: now - index, order: index
   };
 };
 
-// カンマ区切りCSV用パーサー
 const parseCommaCSVRowToItem = (row, selectedGroup, selectedMember, index = 0) => {
   if (!row || row.length < 2) return null;
-  
   const now = Date.now();
-  const createdAt = now - index;
-  const isShortFormat = row.length < 10;
-  
-  if (isShortFormat) {
+  if (row.length < 10) {
     return {
-      id: genId(),
-      group: selectedGroup,
-      member: selectedMember,
-      name: row[1] || "名称なし",
-      thumbnail: row[0] || "",
+      id: genId(), group: selectedGroup, member: selectedMember,
+      name: row[1] || "名称なし", thumbnail: row[0] || "",
       otherImages: row[2] ? row[2].split(/[\n ]+/) : [],
-      yori: 0, 
-      chuu: 0, 
-      hiki: 0,
-      syori: 0,
-      schuu: 0,
-      shiki: 0,
-      memo: "",
-      price: "",
-      source: "入手先",
-      isWish: false,
-      createdAt,
-      order: index
+      yori:0, chuu:0, hiki:0, syori:0, schuu:0, shiki:0, memo:"", price:"", source:"入手先", isWish:false,
+      tags: [],
+      createdAt: now - index, order: index
     };
   } else {
     return {
-      id: genId(),
-      group: row[0] || selectedGroup,
-      member: row[1] || selectedMember,
-      name: row[2] || "名称なし",
-      thumbnail: row[7] || "",
+      id: genId(), group: row[0] || selectedGroup, member: row[1] || selectedMember,
+      name: row[2] || "名称なし", thumbnail: row[7] || "",
       otherImages: row[11] ? row[11].split("|") : [],
-      yori: parseInt(row[3]) || 0, 
-      chuu: parseInt(row[4]) || 0, 
-      hiki: parseInt(row[5]) || 0,
-      syori: parseInt(row[12]) || 0,
-      schuu: parseInt(row[13]) || 0,
-      shiki: parseInt(row[14]) || 0,
-      memo: row[6] || "",
-      price: (row[8] || "").slice(0, 9),
-      source: row[9] || "入手先",
-      isWish: row[10] === "1",
-      createdAt,
-      order: index
+      yori: parseInt(row[3]) || 0, chuu: parseInt(row[4]) || 0, hiki: parseInt(row[5]) || 0,
+      syori: parseInt(row[12]) || 0, schuu: parseInt(row[13]) || 0, shiki: parseInt(row[14]) || 0,
+      memo: row[6] || "", price: (row[8] || "").slice(0,9), source: row[9] || "入手先",
+      isWish: row[10] === "1", tags: [],
+      createdAt: now - index, order: index
     };
   }
 };
-
-function MiniChart({ percent, color, isDarkMode }) {
-  const r = 18; const c = 2 * Math.PI * r;
-  const p = isNaN(percent) ? 0 : percent;
-  return (
-    <svg width="40" height="40" viewBox="0 0 40 40">
-      <circle cx="20" cy="20" r={r} stroke={isDarkMode ? "#333" : "#eee"} strokeWidth="4" fill="none" />
-      <circle cx="20" cy="20" r={r} stroke={color} strokeWidth="4" fill="none"
-        strokeDasharray={`${(p / 100) * c} ${c}`} transform="rotate(-90 20 20)" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 const compressImage = (file, maxWidth = 500) => {
   return new Promise((resolve) => {
@@ -241,70 +160,37 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
   const [availableTemplates, setAvailableTemplates] = useState([]);
-  
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("dark_mode") === "true");
-  const quickBtnStyle = (isDark) => ({
-    flex: 1,
-    padding: '8px 0',
-    fontSize: '11px',
-    borderRadius: '6px',
-    border: '1px solid ' + (isDark ? '#444' : '#ccc'),
-    background: isDark ? '#333' : '#fff',
-    color: isDark ? '#fff' : '#333',
-    cursor: 'pointer'
-  });
   const [appWidth, setAppWidth] = useState(() => localStorage.getItem("app_width") || "600px");
   
   const [groups, setGroups] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const p = JSON.parse(saved);
-      return (Array.isArray(p.groups) && p.groups.length > 0) ? p.groups : DEFAULT_GROUPS;
-    }
+    if (saved) { const p = JSON.parse(saved); return (Array.isArray(p.groups) && p.groups.length) ? p.groups : DEFAULT_GROUPS; }
     return DEFAULT_GROUPS;
   });
-
   const [items, setItems] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const p = JSON.parse(saved);
-      if (Array.isArray(p.items)) {
-        return p.items.map((item, index) => ({
-          ...item,
-          order: item.order !== undefined ? item.order : index
-        }));
-      }
-    }
+    if (saved) { const p = JSON.parse(saved); if (Array.isArray(p.items)) return p.items.map((item, index) => ({ ...item, order: item.order !== undefined ? item.order : index, tags: item.tags || [] })); }
     return [];
   });
-  
   const [selectedGroup, setSelectedGroup] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const p = JSON.parse(saved);
-      if (Array.isArray(p.groups) && p.groups.length > 0) return p.groups[0].name;
-    }
+    if (saved) { const p = JSON.parse(saved); if (Array.isArray(p.groups) && p.groups.length) return p.groups[0].name; }
     return "=Love";
   });
-  
   const [selectedMember, setSelectedMember] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const p = JSON.parse(saved);
-      if (Array.isArray(p.groups) && p.groups.length > 0 && p.groups[0].members.length > 0) return p.groups[0].members[0];
-    }
+    if (saved) { const p = JSON.parse(saved); if (Array.isArray(p.groups) && p.groups.length && p.groups[0].members.length) return p.groups[0].members[0]; }
     return "大谷映美里";
   });
-
   const [showOnlyWish, setShowOnlyWish] = useState(false);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("new");
   const [activeModal, setActiveModal] = useState(null);
-  
   const [editItemId, setEditItemId] = useState(null);
   const [editingNameId, setEditingNameId] = useState(null);
   const [targetName, setTargetName] = useState("");
-  const [targetId, setTargetId] = useState(null); 
+  const [targetId, setTargetId] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [isManageMode, setIsManageMode] = useState(false);
   const [viewer, setViewer] = useState(null);
@@ -312,396 +198,238 @@ function App() {
   const [tempMainUrl, setTempMainUrl] = useState("");
   const [selectedItemIds, setSelectedItemIds] = useState([]);
   const [expandedSignItems, setExpandedSignItems] = useState([]);
-
-  // ドラッグ＆ドロップ用の状態（挿入機能対応）
-  const [draggedItemId, setDraggedItemId] = useState(null);
-  const [dragOverItemId, setDragOverItemId] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dropPosition, setDropPosition] = useState(null); // 'before' or 'after'
-  const [dragInsertGuide, setDragInsertGuide] = useState(null); // 挿入ガイドラインの位置
-
-  // 自動スクロール用の状態
-  const [scrollIntervalId, setScrollIntervalId] = useState(null);
-  const [scrollDirection, setScrollDirection] = useState(0);
-  
-  // スクロール速度を可変制御する追加の状態
-  const [scrollSpeedMultiplier, setScrollSpeedMultiplier] = useState(1);
-
-  // メッセージ管理用の状態
   const [messageTimeout, setMessageTimeout] = useState(null);
+  // ①タグ機能用の状態（編集中のタグ）
+  const [editingTagId, setEditingTagId] = useState(null);
+  const [tempTagInput, setTempTagInput] = useState("");
   
-  // 最新のマウス位置を追跡するref
-  const lastMousePosition = useRef({ x: 0, y: 0 });
+  // ⑨共有機能関連
+  const [shareLists, setShareLists] = useState([]); // 自分の共有リスト一覧
+  const [viewingShareId, setViewingShareId] = useState(null); // URLパラメータから取得
+  const [sharedItems, setSharedItems] = useState([]); // 共有ビューで表示するアイテム
+  const [shareOwner, setShareOwner] = useState(null); // 共有リストの所有者
+  const [shareListName, setShareListName] = useState("");
+  const [requests, setRequests] = useState([]); // 受け取ったリクエスト一覧
   
-  // タッチイベント用の状態（スマホ）
-  const [touchStartY, setTouchStartY] = useState(null);
-  const [touchStartTime, setTouchStartTime] = useState(null);
-  const [touchDraggedItemId, setTouchDraggedItemId] = useState(null);
-  const [isTouchDragging, setIsTouchDragging] = useState(false);
-  const [touchStartX, setTouchStartX] = useState(null);
+  // Sortable用のref
+  const listContainerRef = useRef(null);
+  const sortableInstance = useRef(null);
 
-  // テンプレートファイルの存在確認を行う関数
-  const checkTemplateFiles = useCallback(async () => {
-    const existingTemplates = [];
-    
-    for (const fileName of AVAILABLE_TEMPLATES) {
-      try {
-        const response = await fetch(fileName, { method: 'HEAD' });
-        if (response.ok) {
-          existingTemplates.push(fileName);
-        }
-      } catch (error) {
-        console.log(`テンプレートファイル ${fileName} は存在しません`);
-      }
+  // URLパラメータからshareIdを読み取り
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shareId = params.get('share');
+    if (shareId) {
+      setViewingShareId(shareId);
+      loadSharedList(shareId);
     }
-    
-    setAvailableTemplates(existingTemplates);
-    console.log(`利用可能なテンプレート: ${existingTemplates.length}件`, existingTemplates);
   }, []);
 
-  // メッセージ表示関数
   const showError = useCallback((msg) => {
-    if (messageTimeout) {
-      clearTimeout(messageTimeout);
-      setMessageTimeout(null);
-    }
-    
+    if (messageTimeout) clearTimeout(messageTimeout);
     setErrorMsg(msg);
-    
-    const duration = msg.includes("クラウドに保存しました") || 
-                     msg.includes("クラウドからデータを読み込みました") 
-                     ? 2000 : 3000;
-    
-    const timeoutId = setTimeout(() => {
-      setErrorMsg("");
-      setMessageTimeout(null);
-    }, duration);
-    
-    setMessageTimeout(timeoutId);
+    const duration = msg.includes("クラウド") ? 2000 : 3000;
+    setMessageTimeout(setTimeout(() => setErrorMsg(""), duration));
   }, [messageTimeout]);
 
-  // コンポーネントがアンマウントされる時にタイマーをクリア
+  // テンプレートチェック
+  const checkTemplateFiles = useCallback(async () => {
+    const existing = [];
+    for (const name of AVAILABLE_TEMPLATES) {
+      try { const res = await fetch(name, { method: 'HEAD' }); if (res.ok) existing.push(name); }
+      catch { console.log(name + " は存在しません"); }
+    }
+    setAvailableTemplates(existing);
+  }, []);
+
+  // Firebaseログイン状態
   useEffect(() => {
-    return () => {
-      if (messageTimeout) {
-        clearTimeout(messageTimeout);
-      }
-      if (scrollIntervalId) {
-        clearInterval(scrollIntervalId);
-      }
-    };
-  }, [messageTimeout, scrollIntervalId]);
-
-  // ---------- スクロール最適化（速度調整済み） ----------
-  const optimizedScroll = useCallback(() => {
-    if (scrollDirection === 0) return;
-    
-    const baseSpeed = 15; // 基本速度（px/フレーム）
-    const multiplier = scrollSpeedMultiplier;
-    const direction = Math.sign(scrollDirection);
-    const intensity = Math.min(Math.abs(scrollDirection), 3);
-    
-    let speed = baseSpeed * multiplier * intensity;
-    
-    // マウス位置に基づくブースト
-    if (lastMousePosition.current) {
-      const windowHeight = window.innerHeight;
-      const mouseY = lastMousePosition.current.y;
-      const aggressiveZone = 50;
-      
-      const distanceFromEdge = Math.min(mouseY, windowHeight - mouseY);
-      if (distanceFromEdge < aggressiveZone) {
-        const boost = 1 + (aggressiveZone - distanceFromEdge) / aggressiveZone;
-        speed *= boost;
-      }
-    }
-    
-    const finalSpeed = direction * Math.min(speed, 200);
-    
-    window.scrollBy({
-      top: finalSpeed,
-      behavior: 'instant'
-    });
-  }, [scrollDirection, scrollSpeedMultiplier]);
-
-  // requestAnimationFrameを使用したスクロールループ
-  useEffect(() => {
-    if (scrollDirection === 0) return;
-    
-    let animationFrameId;
-    let lastTime = performance.now();
-    
-    const scrollLoop = (currentTime) => {
-      const deltaTime = currentTime - lastTime;
-      
-      if (deltaTime >= 16) {
-        optimizedScroll();
-        lastTime = currentTime;
-      }
-      
-      if (scrollDirection !== 0) {
-        animationFrameId = requestAnimationFrame(scrollLoop);
-      }
-    };
-    
-    animationFrameId = requestAnimationFrame(scrollLoop);
-    
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-    };
-  }, [scrollDirection, optimizedScroll]);
-
-  // グローバルなマウス移動監視（PCスクロール用）
-  useEffect(() => {
-    const handleGlobalDragOver = (e) => {
-      if (!isDragging || !isManageMode || sortBy !== "manual") return;
-      
-      lastMousePosition.current = { x: e.clientX, y: e.clientY };
-      
-      const windowHeight = window.innerHeight;
-      const scrollThreshold = 80;
-      const aggressiveScrollThreshold = 30;
-      
-      if (e.clientY < aggressiveScrollThreshold) {
-        setScrollDirection(-2);
-      } else if (e.clientY < scrollThreshold) {
-        setScrollDirection(-1);
-      } else if (e.clientY > windowHeight - aggressiveScrollThreshold) {
-        setScrollDirection(2);
-      } else if (e.clientY > windowHeight - scrollThreshold) {
-        setScrollDirection(1);
-      } else {
-        setScrollDirection(0);
-      }
-    };
-
-    const handleGlobalDragEnd = () => {
-      setScrollDirection(0);
-      setIsDragging(false);
-      setDraggedItemId(null);
-      setDragOverItemId(null);
-      setDropPosition(null);
-      setDragInsertGuide(null);
-      
-      // 透明度リセット
-      document.querySelectorAll('.photo-card').forEach(card => {
-        card.style.opacity = '1';
-        card.style.transform = '';
-      });
-    };
-
-    if (isDragging && isManageMode && sortBy === "manual") {
-      document.addEventListener('dragover', handleGlobalDragOver);
-      document.addEventListener('dragend', handleGlobalDragEnd);
-      document.addEventListener('drop', handleGlobalDragEnd);
-      
-      document.body.style.overscrollBehavior = 'none';
-      document.body.style.touchAction = 'none';
-    }
-
-    return () => {
-      document.removeEventListener('dragover', handleGlobalDragOver);
-      document.removeEventListener('dragend', handleGlobalDragEnd);
-      document.removeEventListener('drop', handleGlobalDragEnd);
-      
-      document.body.style.overscrollBehavior = '';
-      document.body.style.touchAction = '';
-    };
-  }, [isDragging, isManageMode, sortBy]);
-
-  // ---------- スマホタッチドラッグ 完全対応 ----------
-  const handleTouchStart = (e, itemId) => {
-    if (!isManageMode || sortBy !== "manual") return;
-    
-    const touch = e.touches[0];
-    setTouchStartY(touch.clientY);
-    setTouchStartX(touch.clientX);
-    setTouchStartTime(Date.now());
-    setTouchDraggedItemId(itemId);
-    
-    // ドラッグ開始の可能性があるため半透明にする
-    const elem = document.querySelector(`[data-item-id="${itemId}"]`);
-    if (elem) elem.style.opacity = '0.5';
-    
-    // ここでは preventDefault しない（スクロールを許可）
-  };
-
-  const handleTouchMove = (e, itemId) => {
-    if (!touchDraggedItemId) return;
-    
-    const touch = e.touches[0];
-    const deltaY = Math.abs(touch.clientY - touchStartY);
-    const deltaX = Math.abs(touch.clientX - touchStartX);
-    const deltaTime = Date.now() - touchStartTime;
-    
-    // ドラッグ開始判定（閾値を少し下げる）
-    if (!isTouchDragging && deltaY > 5 && deltaX < 30 && deltaTime > 120) {
-      setIsTouchDragging(true);
-      setDraggedItemId(touchDraggedItemId);
-      setIsDragging(true);
-      e.preventDefault(); // ドラッグ開始時にスクロールをロック
-    }
-    
-    if (isTouchDragging) {
-      e.preventDefault(); // スクロール防止
-      
-      // マウス位置更新（自動スクロール用）
-      lastMousePosition.current = { x: touch.clientX, y: touch.clientY };
-      
-      // 画面端での自動スクロール判定
-      const windowHeight = window.innerHeight;
-      const scrollThreshold = 90;
-      if (touch.clientY < scrollThreshold) {
-        setScrollDirection(-1);
-      } else if (touch.clientY > windowHeight - scrollThreshold) {
-        setScrollDirection(1);
-      } else {
-        setScrollDirection(0);
-      }
-      
-      // 他のカードの上にいる場合、ドラッグオーバー処理を呼び出す
-      if (itemId && itemId !== touchDraggedItemId) {
-        // handleDragOver にタッチイベントを渡す（clientY を使うため）
-        handleDragOver(e, itemId);
-      }
-    }
-  };
-
-  const handleTouchEnd = (e, itemId) => {
-    if (isTouchDragging && touchDraggedItemId && itemId && itemId !== touchDraggedItemId) {
-      handleDrop(e, itemId);
-    } else {
-      handleDragEnd(e); // キャンセル
-    }
-    
-    // 状態リセット
-    setIsTouchDragging(false);
-    setTouchDraggedItemId(null);
-    setTouchStartY(null);
-    setTouchStartTime(null);
-    setTouchStartX(null);
-    setScrollDirection(0);
-    
-    // ドラッグ中の要素の透明度を戻す
-    if (touchDraggedItemId) {
-      const elem = document.querySelector(`[data-item-id="${touchDraggedItemId}"]`);
-      if (elem) elem.style.opacity = '1';
-    }
-    
-    if (e.cancelable) e.preventDefault();
-  };
-
-  // グローバルタッチリスナー（指がカード外に出てもドラッグ継続）
-  useEffect(() => {
-    const globalTouchMove = (e) => {
-      if (!isTouchDragging || !isManageMode || sortBy !== "manual") return;
-      e.preventDefault(); // ページ全体のスクロールをロック
-      
-      const touch = e.touches[0];
-      lastMousePosition.current = { x: touch.clientX, y: touch.clientY };
-      
-      const windowHeight = window.innerHeight;
-      const scrollThreshold = 90;
-      
-      if (touch.clientY < scrollThreshold) {
-        setScrollDirection(-1);
-      } else if (touch.clientY > windowHeight - scrollThreshold) {
-        setScrollDirection(1);
-      } else {
-        setScrollDirection(0);
-      }
-    };
-
-    const globalTouchEnd = (e) => {
-      if (!isTouchDragging) return;
-      // 強制終了（カード外で指を離した場合）
-      handleDragEnd(e);
-      setIsTouchDragging(false);
-      setTouchDraggedItemId(null);
-      setScrollDirection(0);
-    };
-
-    if (isTouchDragging && isManageMode && sortBy === "manual") {
-      document.addEventListener('touchmove', globalTouchMove, { passive: false });
-      document.addEventListener('touchend', globalTouchEnd, { passive: false });
-      document.addEventListener('touchcancel', globalTouchEnd, { passive: false });
-    }
-
-    return () => {
-      document.removeEventListener('touchmove', globalTouchMove);
-      document.removeEventListener('touchend', globalTouchEnd);
-      document.removeEventListener('touchcancel', globalTouchEnd);
-    };
-  }, [isTouchDragging, isManageMode, sortBy]);
-
-  // Firebaseログイン状態監視
-  useEffect(() => {
-    if (!window.fb) {
-      setIsAuthReady(true);
-      return;
-    }
+    if (!window.fb) { setIsAuthReady(true); return; }
     const unsubscribe = window.fb.onAuthStateChanged(window.fb.auth, async (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
-      
       if (currentUser) {
         await loadFromFirestore(currentUser.uid);
+        loadShareLists(currentUser.uid);
+        loadRequests(currentUser.uid);
       }
-      
       checkTemplateFiles();
     });
     return () => unsubscribe();
   }, [checkTemplateFiles]);
 
-  // Firestore読み込み
+  // 自分の共有リスト一覧をFirestoreから読み込み
+  const loadShareLists = async (uid) => {
+    try {
+      const q = window.fb.query(window.fb.collection(window.fb.db, "shares"), window.fb.where("ownerId", "==", uid));
+      const snapshot = await window.fb.getDocs(q);
+      const lists = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setShareLists(lists);
+    } catch (e) {
+      console.error("共有リスト読み込みエラー:", e);
+    }
+  };
+
+  // 受け取ったリクエスト一覧を読み込み
+  const loadRequests = async (uid) => {
+    try {
+      const q = window.fb.query(window.fb.collection(window.fb.db, "requests"), window.fb.where("ownerId", "==", uid));
+      const snapshot = await window.fb.getDocs(q);
+      const reqs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setRequests(reqs);
+    } catch (e) {
+      console.error("リクエスト読み込みエラー:", e);
+    }
+  };
+
+  // 共有リストを生成
+  const createShareList = async (listName, itemIds) => {
+    if (!user) return;
+    const shareId = genShareId();
+    const shareData = {
+      ownerId: user.uid,
+      listName: listName || "無題のリスト",
+      itemIds: itemIds,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      await window.fb.setDoc(window.fb.doc(window.fb.db, "shares", shareId), shareData);
+      showError("共有リストを作成しました");
+      loadShareLists(user.uid);
+      return shareId;
+    } catch (e) {
+      showError("作成失敗: " + e.message);
+    }
+  };
+
+  // 共有リストを読み込む（公開ビュー用）
+  const loadSharedList = async (shareId) => {
+    try {
+      const docRef = window.fb.doc(window.fb.db, "shares", shareId);
+      const snap = await window.fb.getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        setShareOwner(data.ownerId);
+        setShareListName(data.listName || "共有リスト");
+        // アイテムは全件から該当IDのものを抽出（公開時は全件渡す？ここでは全件を想定）
+        // 実際には owner の全アイテムを取得する必要があるが、簡易的に itemIds のみ保持
+        // より正確には owner の items を取得する必要があるが、今回はデータ構造を簡略化
+        // → 事前に owner が items を保存している想定はしない。ここでは items は owner の全アイテムを別途取得？
+        // 簡易版：itemIds だけ持っていて、アイテム詳細は別途取得しない（表示できない）
+        // 本格実装には owner の items が必要だが、今回はデモとして itemIds のみ表示する簡易モードに留める。
+        // または、共有リスト作成時にアイテムのスナップショットを保存する方式も。
+        // ここではアイテムの詳細情報も一緒に保存する簡易方式を取る（サイズが大きくなるがデモ用）
+        // 実際は itemIds だけ持ち、表示時に owner のデータベースから取得するのが理想。
+        // しかし Firebase のセキュリティ的に公開可能なコレクションが必要。
+        // 今回は「公開リスト」として独立したコレクションにアイテム詳細も保存する。
+        // → つまり shareList に items 配列を保存する方式に変更。
+        // しかしこれだとアイテム更新時に反映されない。Amazonのほしい物リストのように「共有時にスナップショット」という割り切り。
+        // ここでは簡易的に itemIds だけ持ち、表示できないので、以下のように items を別途保存する方式に変更する。
+        // 実際のコードでは、create時に items を複製して保存する必要がある。今回はその方針で実装。
+        // 上記の createShareList では itemIds だけだったので、下記のようにアイテム詳細も保存するよう修正。
+        // 一旦ここでは、共有データとして items を保存している前提で進める。
+        // 本来は create 時にアイテム詳細を保存する必要があるため、後述の create 関数を修正する。
+        // 先に create 関数を修正：選択したアイテムの詳細を保存する。
+        // ここでは簡易的に items プロパティがあると仮定。
+        if (data.items) {
+          setSharedItems(data.items);
+        } else {
+          setSharedItems([]);
+        }
+      } else {
+        showError("共有リストが見つかりません");
+      }
+    } catch (e) {
+      showError("読み込み失敗");
+    }
+  };
+
+  // 共有リスト作成（アイテム詳細も保存）
+  const createShareListWithItems = async (listName, selectedItemIds) => {
+    if (!user) return;
+    const shareId = genShareId();
+    const itemsToShare = items.filter(i => selectedItemIds.includes(i.id)).map(i => ({ ...i, id: undefined })); // IDはコピーしない（新規IDは振らない）
+    // もしくは元のIDを保持したいが、他のユーザーと混ざらないように注意
+    const shareData = {
+      ownerId: user.uid,
+      listName: listName || "無題のリスト",
+      items: itemsToShare,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      await window.fb.setDoc(window.fb.doc(window.fb.db, "shares", shareId), shareData);
+      showError("共有リストを作成しました");
+      loadShareLists(user.uid);
+      return shareId;
+    } catch (e) {
+      showError("作成失敗: " + e.message);
+    }
+  };
+
+  // リクエスト送信
+  const sendRequest = async (shareId, itemId) => {
+    if (!user) {
+      showError("リクエストにはログインが必要です");
+      return;
+    }
+    try {
+      const requestData = {
+        ownerId: shareOwner,
+        requesterId: user.uid,
+        requesterName: user.displayName || "名無し",
+        shareId: shareId,
+        itemId: itemId,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      };
+      await window.fb.addDoc(window.fb.collection(window.fb.db, "requests"), requestData);
+      showError("リクエストを送信しました");
+    } catch (e) {
+      showError("リクエスト送信失敗");
+    }
+  };
+
+  // リクエストの状態更新（承認/拒否）
+  const updateRequestStatus = async (requestId, status) => {
+    try {
+      await window.fb.setDoc(window.fb.doc(window.fb.db, "requests", requestId), { status }, { merge: true });
+      loadRequests(user.uid);
+    } catch (e) {
+      showError("更新失敗");
+    }
+  };
+
   const loadFromFirestore = async (userId) => {
     try {
       setIsLoading(true);
       const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
-      const docSnap = await window.fb.getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (Array.isArray(data.groups) && data.groups.length > 0) {
+      const snap = await window.fb.getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data.groups) && data.groups.length) {
           setGroups(data.groups);
           setSelectedGroup(data.groups[0].name);
-          if (data.groups[0].members.length > 0) setSelectedMember(data.groups[0].members[0]);
+          if (data.groups[0].members.length) setSelectedMember(data.groups[0].members[0]);
         }
-        if (Array.isArray(data.items)) {
-          setItems(data.items.map((item, index) => ({ ...item, order: item.order !== undefined ? item.order : index })));
-        }
+        if (Array.isArray(data.items)) setItems(data.items.map((it, idx) => ({ ...it, order: it.order ?? idx, tags: it.tags || [] })));
         showError("クラウドからデータを読み込みました");
         setLastSaved(new Date().toLocaleTimeString());
-      } else {
-        await saveToFirestore(userId);
-      }
-    } catch (error) {
-      console.error("Firestore読み込みエラー:", error);
-      showError("クラウドデータの読み込みに失敗しました");
-    } finally {
-      setIsLoading(false);
-    }
+      } else await saveToFirestore(userId);
+    } catch (e) { console.error(e); showError("クラウド読み込み失敗"); } finally { setIsLoading(false); }
   };
 
-  // Firestore保存
   const saveToFirestore = async (userId) => {
     try {
       const docRef = window.fb.doc(window.fb.db, "users", userId, "data", "photocards");
       await window.fb.setDoc(docRef, { groups, items, lastUpdated: new Date().toISOString() }, { merge: true });
       showError("クラウドに保存しました ✓");
       setLastSaved(new Date().toLocaleTimeString());
-    } catch (error) {
-      console.error("保存エラー:", error);
-      showError(`保存失敗: ${error.message}`);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
-    }
+    } catch (e) { console.error(e); showError(`保存失敗: ${e.message}`); localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); }
   };
 
   // ローカル保存
-  useEffect(() => { 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
     localStorage.setItem("dark_mode", isDarkMode);
     localStorage.setItem("app_width", appWidth);
   }, [groups, items, isDarkMode, appWidth]);
@@ -713,234 +441,187 @@ function App() {
     return () => clearTimeout(timer);
   }, [groups, items, user]);
 
-  // Googleログイン
   const handleGoogleLogin = async () => {
-    try {
-      await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
-    } catch (error) {
-      showError("ログインに失敗しました");
-    }
+    try { await window.fb.signInWithPopup(window.fb.auth, window.fb.provider); } catch { showError("ログイン失敗"); }
   };
-
-  // ログアウト
   const handleLogout = async () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
-      await window.fb.signOut(window.fb.auth);
-    } catch (error) {
-      showError("ログアウトに失敗しました");
-    }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); await window.fb.signOut(window.fb.auth); } catch { showError("ログアウト失敗"); }
+  };
+  const handleManualSave = async () => { if (!user) { showError("ログインしてください"); return; } await saveToFirestore(user.uid); };
+  const handleManualLoad = async () => { if (!user) { showError("ログインしてください"); return; } await loadFromFirestore(user.uid); };
+
+  const updateItem = (id, key, val) => setItems(p => p.map(i => i.id === id ? { ...i, [key]: val } : i));
+  const toggleSelectItem = (id) => { if (!isManageMode) return; setSelectedItemIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); };
+  const toggleSignCounters = (id) => setExpandedSignItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+
+  // ①タグ操作
+  const addTag = (id, tag) => {
+    if (!tag.trim()) return;
+    setItems(p => p.map(i => {
+      if (i.id !== id) return i;
+      const newTags = i.tags ? [...i.tags, tag.trim()] : [tag.trim()];
+      return { ...i, tags: newTags };
+    }));
+  };
+  const removeTag = (id, tag) => {
+    setItems(p => p.map(i => {
+      if (i.id !== id) return i;
+      return { ...i, tags: (i.tags || []).filter(t => t !== tag) };
+    }));
   };
 
-  const handleManualSave = async () => {
-    if (!user) { showError("ログインしてください"); return; }
-    await saveToFirestore(user.uid);
-  };
-
-  const handleManualLoad = async () => {
-    if (!user) { showError("ログインしてください"); return; }
-    await loadFromFirestore(user.uid);
-  };
-
-  const updateItem = useCallback((id, key, val) => {
-    setItems(p => p.map(i => i.id === id ? { ...i, [key]: val } : i));
-  }, []);
-
-  const toggleSelectItem = (id) => {
-    if (!isManageMode) return;
-    setSelectedItemIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
-
-  const toggleSignCounters = (id) => {
-    setExpandedSignItems(prev => prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id]);
-  };
-
-  // ドラッグ＆ドロップハンドラー（PC）
-  const handleDragStart = (e, itemId) => {
-    if (!isManageMode || sortBy !== "manual") return;
-    e.dataTransfer.setData('text/plain', itemId);
-    e.dataTransfer.effectAllowed = 'move';
-    setDraggedItemId(itemId);
-    setIsDragging(true);
-    setTimeout(() => {
-      const elem = document.querySelector(`[data-item-id="${itemId}"]`);
-      if (elem) elem.style.opacity = '0.5';
-    }, 0);
-  };
-
-  const calculateDropPosition = (e, element) => {
-    const rect = element.getBoundingClientRect();
-    let y;
-    if (e.type.includes('touch')) {
-      const touch = e.touches[0];
-      y = touch.clientY;
-    } else {
-      y = e.clientY;
-    }
-    const threshold = rect.height / 3;
-    if (y < rect.top + threshold) return { position: 'before', guideY: rect.top };
-    if (y > rect.bottom - threshold) return { position: 'after', guideY: rect.bottom };
-    return { position: 'middle', guideY: rect.top + rect.height / 2 };
-  };
-
-  const handleDragOver = (e, itemId) => {
-    if (!isManageMode || sortBy !== "manual" || (!draggedItemId && !touchDraggedItemId)) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    
-    const currentDraggedId = draggedItemId || touchDraggedItemId;
-    if (currentDraggedId === itemId) return;
-    
-    const { position, guideY } = calculateDropPosition(e, e.currentTarget);
-    setDragOverItemId(itemId);
-    setDropPosition(position);
-    setDragInsertGuide(guideY);
-  };
-
-  const handleDragLeave = (e) => {
-    if (!isManageMode || sortBy !== "manual") return;
-    setDragOverItemId(null);
-    setDropPosition(null);
-    setDragInsertGuide(null);
-  };
-
-  const handleDragEnd = (e) => {
-    if (!isManageMode || sortBy !== "manual") return;
-    setScrollDirection(0);
-    
-    document.querySelectorAll('.photo-card').forEach(card => {
-      card.style.opacity = '1';
-      card.style.transform = '';
-    });
-    
-    if (draggedItemId) {
-      const elem = document.querySelector(`[data-item-id="${draggedItemId}"]`);
-      if (elem) elem.style.opacity = '1';
-    }
-    if (touchDraggedItemId) {
-      const elem = document.querySelector(`[data-item-id="${touchDraggedItemId}"]`);
-      if (elem) elem.style.opacity = '1';
-    }
-    
-    setIsDragging(false);
-    setDraggedItemId(null);
-    setTouchDraggedItemId(null);
-    setDragOverItemId(null);
-    setDropPosition(null);
-    setDragInsertGuide(null);
-  };
-
-  const handleDrop = (e, targetItemId) => {
-    if (!isManageMode || sortBy !== "manual") return;
-    
-    const currentDraggedId = draggedItemId || touchDraggedItemId;
-    if (!currentDraggedId) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
-    setScrollDirection(0);
-    setDragInsertGuide(null);
-    
-    if (currentDraggedId === targetItemId) {
-      document.querySelectorAll('.photo-card').forEach(card => {
-        card.style.opacity = '1';
-        card.style.transform = '';
-      });
+  // SortableJSのセットアップ
+  useEffect(() => {
+    if (!isManageMode || sortBy !== "manual" || !listContainerRef.current || viewingShareId) {
+      if (sortableInstance.current) {
+        sortableInstance.current.destroy();
+        sortableInstance.current = null;
+      }
       return;
     }
-    
-    const draggedItem = items.find(item => item.id === currentDraggedId);
-    const targetItem = items.find(item => item.id === targetItemId);
-    if (!draggedItem || !targetItem) return;
-    
-    const currentFiltered = items.filter(i => 
-      (selectedGroup === "ALL" || i.group === selectedGroup) && 
-      (selectedMember === "ALL" || i.member === selectedMember)
-    );
-    const currentSorted = [...currentFiltered].sort((a, b) => (a.order || 0) - (b.order || 0));
-    
-    const draggedIndex = currentSorted.findIndex(item => item.id === currentDraggedId);
-    const targetIndex = currentSorted.findIndex(item => item.id === targetItemId);
-    if (draggedIndex === -1 || targetIndex === -1) return;
-    
-    const newOrderItems = [...currentSorted];
-    newOrderItems.splice(draggedIndex, 1);
-    
-    let insertIndex;
-    if (dropPosition === 'before') insertIndex = targetIndex;
-    else if (dropPosition === 'after') insertIndex = targetIndex + 1;
-    else insertIndex = targetIndex + 1;
-    
-    if (draggedIndex < insertIndex) insertIndex--;
-    newOrderItems.splice(insertIndex, 0, draggedItem);
-    
-    const orderMap = new Map();
-    newOrderItems.forEach((item, index) => orderMap.set(item.id, index));
-    
-    setItems(items.map(item => orderMap.has(item.id) ? { ...item, order: orderMap.get(item.id) } : item)
-      .sort((a, b) => (a.order || 0) - (b.order || 0)));
-    
-    setDraggedItemId(null);
-    setTouchDraggedItemId(null);
-    setDragOverItemId(null);
-    setDropPosition(null);
-    
-    showError(`「${draggedItem.name}」を移動しました`);
-    
-    document.querySelectorAll('.photo-card').forEach(card => {
-      card.style.opacity = '1';
-      card.style.transform = '';
+
+    if (sortableInstance.current) sortableInstance.current.destroy();
+
+    sortableInstance.current = new Sortable(listContainerRef.current, {
+      animation: 200,
+      handle: '.drag-handle',
+      draggable: '.photo-card',
+      onEnd: (evt) => {
+        const { oldIndex, newIndex } = evt;
+        if (oldIndex === newIndex) return;
+
+        const filtered = items.filter(i => 
+          (selectedGroup === "ALL" || i.group === selectedGroup) &&
+          (selectedMember === "ALL" || i.member === selectedMember) &&
+          i.name.toLowerCase().includes(search.toLowerCase()) &&
+          (!showOnlyWish || i.isWish)
+        );
+        const sorted = [...filtered].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        
+        const [moved] = sorted.splice(oldIndex, 1);
+        sorted.splice(newIndex, 0, moved);
+        
+        const orderMap = new Map();
+        sorted.forEach((item, idx) => orderMap.set(item.id, idx));
+        
+        setItems(prev => prev.map(item => {
+          if (orderMap.has(item.id)) return { ...item, order: orderMap.get(item.id) };
+          return item;
+        }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+      },
+      forceFallback: true,
+      fallbackClass: 'sortable-fallback',
+      fallbackOnBody: true,
+      touchStartThreshold: 2,
     });
+
+    return () => {
+      if (sortableInstance.current) {
+        sortableInstance.current.destroy();
+        sortableInstance.current = null;
+      }
+    };
+  }, [isManageMode, sortBy, items, selectedGroup, selectedMember, search, showOnlyWish, viewingShareId]);
+
+  const quickBtnStyle = (isDark) => ({
+    flex:1, padding:'8px 0', fontSize:'11px', borderRadius:'6px',
+    border:'1px solid '+(isDark?'#444':'#ccc'),
+    background: isDark?'#333':'#fff', color: isDark?'#fff':'#333', cursor:'pointer'
+  });
+
+  // フィルタ＆ソート（タグも検索対象に含める）
+  const sortedItems = useMemo(() => {
+    if (viewingShareId) return sharedItems; // 共有ビュー時は共有アイテムを表示
+    let filtered = items.filter(i => 
+      (selectedGroup === "ALL" || i.group === selectedGroup) &&
+      (selectedMember === "ALL" || i.member === selectedMember) &&
+      (i.name && i.name.toLowerCase().includes(search.toLowerCase()) ||
+       (i.tags && i.tags.some(tag => tag.toLowerCase().includes(search.toLowerCase())))) &&
+      (!showOnlyWish || i.isWish)
+    );
+    if (sortBy === "manual") {
+      return filtered.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    }
+    return filtered.sort((a, b) => {
+      const aCnt = (a.yori||0)+(a.chuu||0)+(a.hiki||0)+(a.syori||0)+(a.schuu||0)+(a.shiki||0);
+      const bCnt = (b.yori||0)+(b.chuu||0)+(b.hiki||0)+(b.syori||0)+(b.schuu||0)+(b.shiki||0);
+      switch (sortBy) {
+        case "name": return (a.name||"").localeCompare(b.name||"", 'ja');
+        case "new": return (b.createdAt||0) - (a.createdAt||0);
+        case "old": return (a.createdAt||0) - (b.createdAt||0);
+        case "price_high": return (parseInt(b.price)||0) - (parseInt(a.price)||0);
+        case "stock_high": return bCnt - aCnt;
+        case "comp_first":
+          const aComp = (a.yori>0||a.syori>0) && (a.chuu>0||a.schuu>0) && (a.hiki>0||a.shiki>0);
+          const bComp = (b.yori>0||b.syori>0) && (b.chuu>0||b.schuu>0) && (b.hiki>0||b.shiki>0);
+          return (bComp?1:0) - (aComp?1:0);
+        default: return (b.createdAt||0) - (a.createdAt||0);
+      }
+    });
+  }, [items, selectedGroup, selectedMember, search, showOnlyWish, sortBy, viewingShareId, sharedItems]);
+
+  const stats = useMemo(() => {
+    if (viewingShareId) return { totalKinds: sharedItems.length, totalSlots: sharedItems.length*3, collectedSlots:0, completedKinds:0 }; // 共有ビューでは統計は簡略
+    const filtered = items.filter(i => (selectedGroup==="ALL"||i.group===selectedGroup) && (selectedMember==="ALL"||i.member===selectedMember));
+    const totalKinds = filtered.length;
+    const totalSlots = totalKinds * 3;
+    let collected = 0, completed = 0;
+    filtered.forEach(i => {
+      const hasY = i.yori>0||i.syori>0;
+      const hasC = i.chuu>0||i.schuu>0;
+      const hasH = i.hiki>0||i.shiki>0;
+      if (hasY) collected++;
+      if (hasC) collected++;
+      if (hasH) collected++;
+      if (hasY && hasC && hasH) completed++;
+    });
+    return { totalKinds, totalSlots, collectedSlots: collected, completedKinds: completed };
+  }, [items, selectedGroup, selectedMember, viewingShareId, sharedItems]);
+
+  const batchAction = (type) => {
+    if (selectedItemIds.length === 0 || !isManageMode) return;
+    if (type === 'delete') { setTargetName(`${selectedItemIds.length}件の選択項目`); setActiveModal('delete_batch'); }
+    else if (type === 'wish') { setItems(p => p.map(i => selectedItemIds.includes(i.id) ? {...i, isWish: true} : i)); showError(`${selectedItemIds.length}件を⭐に設定`); }
+    else if (type === 'stock') { setItems(p => p.map(i => selectedItemIds.includes(i.id) ? {...i, yori: (i.yori||0)+1, chuu: (i.chuu||0)+1, hiki: (i.hiki||0)+1} : i)); showError(`${selectedItemIds.length}件の在庫+1`); }
   };
 
-  // 並び順リセット（表示中のみ）
   const resetOrder = () => {
-    if (confirm('並び順をリセットして新しい順に戻しますか？')) {
-      const currentItems = items.filter(i => 
-        (selectedGroup === "ALL" || i.group === selectedGroup) && 
-        (selectedMember === "ALL" || i.member === selectedMember)
-      );
-      const sortedByDate = [...currentItems].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (confirm("並び順をリセットして新しい順に戻しますか？")) {
+      const current = items.filter(i => (selectedGroup==="ALL"||i.group===selectedGroup) && (selectedMember==="ALL"||i.member===selectedMember));
+      const sortedByDate = [...current].sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
       const orderMap = new Map();
-      sortedByDate.forEach((item, index) => orderMap.set(item.id, index));
-      setItems(items.map(item => orderMap.has(item.id) ? { ...item, order: orderMap.get(item.id) } : item)
-        .sort((a, b) => (a.order || 0) - (b.order || 0)));
-      showError('並び順をリセットしました（新しい順）');
+      sortedByDate.forEach((it, idx) => orderMap.set(it.id, idx));
+      setItems(prev => prev.map(it => orderMap.has(it.id) ? {...it, order: orderMap.get(it.id)} : it).sort((a,b) => (a.order??0)-(b.order??0)));
+      showError("並び順をリセットしました");
     }
   };
 
   const resetAllOrder = () => {
-    if (confirm('すべてのアイテムの並び順を完全にリセットしますか？')) {
-      const sortedAll = [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      const updated = sortedAll.map((item, index) => ({ ...item, order: index }));
+    if (confirm("すべてのアイテムの並び順を完全にリセットしますか？")) {
+      const allSorted = [...items].sort((a,b) => (b.createdAt||0)-(a.createdAt||0));
+      const updated = allSorted.map((it, idx) => ({...it, order: idx}));
       setItems(updated);
-      showError('すべての並び順をリセットしました');
+      showError("すべての並び順をリセットしました");
     }
   };
 
-  // CSVインポート
   const handleImportCSV = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (selectedGroup === "ALL" || selectedMember === "ALL") { 
-      showError("グループとメンバーを選択してください"); 
-      e.target.value = ""; 
-      return; 
-    }
+    if (selectedGroup === "ALL" || selectedMember === "ALL") { showError("グループとメンバーを選択してください"); e.target.value=""; return; }
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
         const text = ev.target.result;
         const hasTabs = text.includes('\t');
-        const delimiter = hasTabs ? '\t' : ',';
-        const rows = parseCSV(text, delimiter);
-        const newItems = rows.map((row, index) => {
-          if (hasTabs) return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
-          else return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
+        const rows = parseCSV(text, hasTabs ? '\t' : ',');
+        const newItems = rows.map((row, idx) => {
+          if (hasTabs) return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + idx);
+          else return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + idx);
         }).filter(Boolean);
         setItems(p => [...p, ...newItems]);
         showError(`${newItems.length}件取り込みました`);
-      } catch(err) { showError("CSV形式エラー: " + err.message); }
+      } catch(err) { showError("CSVエラー: "+err.message); }
     };
     reader.readAsText(file, 'UTF-8');
     e.target.value = "";
@@ -949,214 +630,108 @@ function App() {
   const loadExternalTemplate = async (fileName) => {
     try {
       setIsLoading(true);
-      const response = await fetch(fileName);
-      if (!response.ok) throw new Error(`テンプレートファイルが見つかりません`);
-      const csvText = await response.text();
-      const hasTabs = csvText.includes('\t');
-      const delimiter = hasTabs ? '\t' : ',';
-      const rows = parseCSV(csvText, delimiter);
-      const newItems = rows.map((row, index) => {
-        if (hasTabs) return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
-        else return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + index);
+      const res = await fetch(fileName);
+      if (!res.ok) throw new Error("テンプレートが見つかりません");
+      const text = await res.text();
+      const hasTabs = text.includes('\t');
+      const rows = parseCSV(text, hasTabs ? '\t' : ',');
+      const newItems = rows.map((row, idx) => {
+        if (hasTabs) return parseTabCSVRowToItem(row, selectedGroup, selectedMember, items.length + idx);
+        else return parseCommaCSVRowToItem(row, selectedGroup, selectedMember, items.length + idx);
       }).filter(Boolean);
       setItems(p => [...p, ...newItems]);
-      showError(`${newItems.length}件のテンプレートを読み込みました`);
+      showError(`${newItems.length}件テンプレート読込`);
       setActiveModal(null);
-    } catch (err) {
-      showError(`読み込み失敗: ${err.message}`);
-      checkTemplateFiles();
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (err) { showError("読込失敗: "+err.message); checkTemplateFiles(); } finally { setIsLoading(false); }
   };
 
   const handleCSVExport = () => {
-    const csvData = items.map(i => [
-      i.group, i.member, i.name, i.yori, i.chuu, i.hiki, i.memo||"", i.thumbnail||"", i.price||"", i.source||"入手先", i.isWish?"1":"0", (i.otherImages||[]).join("|"), i.syori||0, i.schuu||0, i.shiki||0, i.order||0
-    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csvData], {type:"text/csv;charset=utf-8;"});
-    const a = document.createElement("a"); 
-    a.href = URL.createObjectURL(blob); 
-    a.download="photo_data.csv"; 
-    a.click();
+    const csv = items.map(i => [
+      i.group, i.member, i.name, i.yori, i.chuu, i.hiki, i.memo||"", i.thumbnail||"", i.price||"", i.source||"入手先", i.isWish?"1":"0", (i.otherImages||[]).join("|"), i.syori||0, i.schuu||0, i.shiki||0, i.order||0, (i.tags||[]).join(",")
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], {type:"text/csv"});
+    const a = document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="photo_data.csv"; a.click();
   };
-
   const handleTSVExport = () => {
-    const tsvData = items.map(i => {
-      const thumbnail = i.thumbnail || "";
-      const name = i.name || "";
-      const otherImages = (i.otherImages || []).join("\n");
-      return `${thumbnail}\t${name}\t"${otherImages}"`;
-    }).join("\n");
-    
-    const blob = new Blob([tsvData], {type:"text/tab-separated-values;charset=utf-8;"});
-    const a = document.createElement("a"); 
-    a.href = URL.createObjectURL(blob); 
-    a.download="photo_data.tsv"; 
-    a.click();
+    const tsv = items.map(i => `${i.thumbnail||""}\t${i.name||""}\t"${(i.otherImages||[]).join("\n")}"`).join("\n");
+    const blob = new Blob([tsv], {type:"text/tab-separated-values"});
+    const a = document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="photo_data.tsv"; a.click();
   };
 
-  const sortedItems = useMemo(() => {
-    let filtered = items.filter(i => 
-      (selectedGroup === "ALL" || i.group === selectedGroup) && 
-      (selectedMember === "ALL" || i.member === selectedMember) && 
-      (i.name && i.name.toLowerCase().includes(search.toLowerCase())) && 
-      (!showOnlyWish || i.isWish)
-    );
-    
-    return filtered.sort((a, b) => {
-      if (sortBy === "manual") return (a.order || 0) - (b.order || 0);
-      const aCount = (a.yori||0)+(a.chuu||0)+(a.hiki||0)+(a.syori||0)+(a.schuu||0)+(a.shiki||0);
-      const bCount = (b.yori||0)+(b.chuu||0)+(b.hiki||0)+(b.syori||0)+(b.schuu||0)+(b.shiki||0);
-      switch (sortBy) {
-        case "name": return (a.name||"").localeCompare(b.name||"", 'ja');
-        case "new": return (b.createdAt || 0) - (a.createdAt || 0);
-        case "old": return (a.createdAt || 0) - (b.createdAt || 0);
-        case "price_high": return (parseInt(b.price)||0) - (parseInt(a.price)||0);
-        case "stock_high": return bCount - aCount;
-        case "comp_first":
-          const aComp = (a.yori>0||a.syori>0) && (a.chuu>0||a.schuu>0) && (a.hiki>0||a.shiki>0);
-          const bComp = (b.yori>0||b.syori>0) && (b.chuu>0||b.schuu>0) && (b.hiki>0||b.shiki>0);
-          return (bComp?1:0) - (aComp?1:0);
-        default: return (b.createdAt || 0) - (a.createdAt || 0);
-      }
-    });
-  }, [items, selectedGroup, selectedMember, search, showOnlyWish, sortBy]);
-
-  const batchAction = (type) => {
-    if (selectedItemIds.length === 0 || !isManageMode) return;
-    if (type === 'delete') {
-      setTargetName(`${selectedItemIds.length}件の選択項目`);
-      setActiveModal('delete_batch');
-    } else if (type === 'wish') {
-      setItems(p => p.map(i => selectedItemIds.includes(i.id) ? { ...i, isWish: true } : i));
-      showError(`${selectedItemIds.length}件を⭐に設定しました`);
-    } else if (type === 'stock') {
-      setItems(p => p.map(i => selectedItemIds.includes(i.id) ? { ...i, yori: (i.yori||0)+1, chuu: (i.chuu||0)+1, hiki: (i.hiki||0)+1 } : i));
-      showError(`${selectedItemIds.length}件の在庫を+1しました`);
-    }
-  };
-
-  const stats = useMemo(() => {
-    const filtered = items.filter(i => (selectedGroup === "ALL" || i.group === selectedGroup) && (selectedMember === "ALL" || i.member === selectedMember));
-    const totalKinds = filtered.length;
-    const totalCount = filtered.reduce((s,i) => s + (parseInt(i.yori)||0) + (parseInt(i.chuu)||0) + (parseInt(i.hiki)||0) + (parseInt(i.syori)||0) + (parseInt(i.schuu)||0) + (parseInt(i.shiki)||0), 0);
-    const totalSlots = totalKinds * 3;
-    let collectedSlots = 0;
-    let completedKinds = 0;
-    filtered.forEach(i => {
-      const hasYori = (i.yori > 0 || i.syori > 0);
-      const hasChuu = (i.chuu > 0 || i.schuu > 0);
-      const hasHiki = (i.hiki > 0 || i.shiki > 0);
-      if (hasYori) collectedSlots++;
-      if (hasChuu) collectedSlots++;
-      if (hasHiki) collectedSlots++;
-      if (hasYori && hasChuu && hasHiki) completedKinds++;
-    });
-    return { totalKinds, totalCount, totalSlots, collectedSlots, completedKinds };
-  }, [items, selectedGroup, selectedMember]);
-
-  const openEditImgModal = (item) => {
-    setEditItemId(item.id);
-    setTempMainUrl(item.thumbnail || "");
-    setTempImages(item.otherImages || []);
-    setActiveModal('edit_img');
-  };
-
-  const saveImages = () => {
-    setItems(p => p.map(it => it.id === editItemId ? { ...it, thumbnail: tempMainUrl, otherImages: tempImages } : it));
-    setActiveModal(null);
-  };
-
-  const handleCacheClear = () => {
-    if(confirm("データをすべて消除して初期状態に戻しますか？")){
-      localStorage.removeItem(STORAGE_KEY);
-      location.reload();
-    }
-  };
-
-  // スクロール速度ゲージ（非表示）
-  const ScrollSpeedGauge = () => null;
-
-  // スピードコントロール（左上）
-  const SpeedControl = () => (
-    <div className="speed-control" style={{
-      position: 'fixed', top: '80px', left: '10px', zIndex: 9996,
-      display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start'
-    }}>
-      <div style={{
-        fontSize: '10px', color: isDarkMode ? '#fff' : '#333', fontWeight: 'bold',
-        background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
-        padding: '2px 6px', borderRadius: '8px', backdropFilter: 'blur(4px)', whiteSpace: 'nowrap'
-      }}>スクロール速度</div>
-      <div style={{
-        display: 'flex', gap: '2px',
-        background: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)',
-        padding: '4px', borderRadius: '12px', backdropFilter: 'blur(4px)'
-      }}>
-        {[1, 2, 3].map(m => (
-          <button key={m} onClick={() => setScrollSpeedMultiplier(m)} style={{
-            padding: '3px 6px', fontSize: '9px',
-            background: scrollSpeedMultiplier === m ? (m===1?'#2196f3':m===2?'#4caf50':'#ff9800') : 'transparent',
-            color: scrollSpeedMultiplier === m ? 'white' : (isDarkMode?'#ccc':'#666'),
-            border: '1px solid '+(isDarkMode?'#444':'#ddd'), borderRadius: '8px', cursor: 'pointer',
-            fontWeight: 'bold', minWidth: '28px'
-          }}>{m}x</button>
-        ))}
-      </div>
-    </div>
-  );
+  const openEditImgModal = (item) => { setEditItemId(item.id); setTempMainUrl(item.thumbnail||""); setTempImages(item.otherImages||[]); setActiveModal('edit_img'); };
+  const saveImages = () => { setItems(p => p.map(it => it.id===editItemId ? {...it, thumbnail: tempMainUrl, otherImages: tempImages} : it)); setActiveModal(null); };
+  const handleCacheClear = () => { if(confirm("全データを削除しますか？")) { localStorage.removeItem(STORAGE_KEY); location.reload(); } };
 
   // ログイン前
-  if (!isAuthReady) {
-    return <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',background:'#1a1a1a',color:'#fff'}}>読み込み中...</div>;
-  }
-
-  if (!user) {
+  if (!isAuthReady) return <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',background:'#1a1a1a',color:'#fff'}}>読み込み中...</div>;
+  
+  // 共有ビューモード
+  if (viewingShareId) {
     return (
-      <div style={{display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',height:'100vh',background:'#1a1a1a',gap:20}}>
-        <h1 style={{color:'#fff',fontSize:24}}>生写真管理For=Love</h1>
-        <p style={{color:'#aaa'}}>Googleアカウントでログインしてください</p>
-        <button onClick={handleGoogleLogin} style={{padding:'12px 32px',fontSize:16,background:'#4285f4',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
-          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#fff" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/><path fill="#fff" d="M9.003 18c2.43 0 4.467-.806 5.956-2.18L12.05 13.56c-.806.54-1.836.86-3.047.86-2.344 0-4.328-1.584-5.036-3.711H.96v2.332C2.44 15.983 5.485 18 9.003 18z"/><path fill="#fff" d="M3.964 10.712c-.18-.54-.282-1.117-.282-1.71 0-.593.102-1.17.282-1.71V4.96H.957C.347 6.175 0 7.55 0 9.002c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#fff" d="M9.003 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.464.891 11.428 0 9.002 0 5.485 0 2.44 2.017.96 4.958L3.967 7.29c.708-2.127 2.692-3.71 5.036-3.71z"/></svg>
-          Googleでログイン
-        </button>
+      <div className={isDarkMode?"dark-mode":""} style={{maxWidth:appWidth,margin:'0 auto',minHeight:'100vh'}}>
+        <div className="top-bar">
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <h3 style={{margin:0,fontSize:'16px'}}>共有リスト: {shareListName}</h3>
+          </div>
+          <div>
+            <button onClick={()=> window.location.href = '/'} style={{padding:'6px 12px'}}>ホームに戻る</button>
+          </div>
+        </div>
+        <div className="main-layout">
+          <p>このリストは公開されています。欲しいアイテムがあればリクエストできます。</p>
+          <div className="stats-card">
+            <div className="stats-summary">
+              <div className="stat-item"><span className="stat-value">{sharedItems.length}</span><span className="stat-label">掲載点数</span></div>
+            </div>
+          </div>
+          {sharedItems.map(i => (
+            <div key={i.id} className={`photo-card ${i.isWish?'is-wish':''}`}>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+                <div className="img-container">
+                  <div style={{width:65}}>
+                    {i.thumbnail ? <img src={i.thumbnail} style={{width:'100%',borderRadius:4}} /> : <div style={{background:'#eee',height:60,borderRadius:4,fontSize:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#888'}}>画像なし</div>}
+                  </div>
+                </div>
+              </div>
+              <div className="card-content">
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{flex:1,minWidth:0,display:'flex',alignItems:'center',gap:8}}>
+                    <span className={`wish-toggle ${i.isWish?'active':''}`}>⭐</span>
+                    <span className="name-display">{i.name}</span>
+                  </div>
+                </div>
+                <div className="tags-container" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                  {(i.tags || []).map(tag => <span key={tag} className="tag-badge" style={{ background: isDarkMode?'#444':'#e0e0e0', padding:'2px 8px', borderRadius:'12px', fontSize:'11px' }}>#{tag}</span>)}
+                </div>
+                <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
+                  {[{k:'yori',l:'寄'},{k:'chuu',l:'中'},{k:'hiki',l:'引'}].map(o=>(
+                    <div key={o.k} className={`counter-group ${i[o.k]>0?'has-stock':''}`}>
+                      <span style={{fontSize:9,padding:'0 4px',fontWeight:'bold'}}>{o.l}</span>
+                      <span className="qty-val">{i[o.k]||0}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{marginTop:'8px'}}>
+                  <button onClick={()=> sendRequest(viewingShareId, i.id)} style={{padding:'8px 16px',background:'#4caf50',color:'white',border:'none',borderRadius:'4px',cursor:'pointer'}}>このアイテムをリクエスト</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
-  // メイン画面
+  // 通常の管理画面
   return (
-    <div className={isDarkMode ? "dark-mode" : ""} style={{ maxWidth: appWidth, margin: '0 auto', minHeight: '100vh', transition: 'max-width 0.3s' }}>
+    <div className={isDarkMode?"dark-mode":""} style={{maxWidth:appWidth,margin:'0 auto',minHeight:'100vh'}}>
       {errorMsg && <div className="error-toast">⚠️ {errorMsg}</div>}
       {isLoading && <div className="loading-overlay"><div className="loading-spinner"></div><div className="loading-text">同期中...</div></div>}
-      
-      {dragInsertGuide !== null && <div className="drag-insert-guide" style={{ top: dragInsertGuide }} />}
-      
-      {scrollDirection !== 0 && (
-        <div className={`scroll-indicator ${scrollDirection === -1 ? 'scroll-up' : 'scroll-down'} ${Math.abs(scrollDirection) >= 2 ? 'turbo' : ''}`}>
-          {scrollDirection === -1 ? '↑ 上にスクロール ↑' : '↓ 下にスクロール ↓'}
-        </div>
-      )}
-      
-      {isDragging && <div className="drag-hint">📍 アイテムを他のアイテムの間に入れて挿入できます</div>}
-      
-      {isManageMode && sortBy === "manual" && (
-        <>
-          <SpeedControl />
-          {scrollSpeedMultiplier > 1 && <div className="turbo-hint">🚀 ターボモード: {scrollSpeedMultiplier}x</div>}
-          {scrollDirection !== 0 && (
-            <div className={`speed-indicator ${Math.abs(scrollDirection) >= 2 ? 'turbo' : ''}`}>
-              {Math.abs(scrollDirection) === 1 ? '通常' : Math.abs(scrollDirection) === 2 ? '高速' : '超高速'}スクロール中
-            </div>
-          )}
-        </>
-      )}
-      
+
       <div className="top-bar">
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <h3 style={{margin:0,fontSize:'16px'}}>生写真管理For=Love</h3>
-          {lastSaved && <span style={{fontSize:10,color:'#4caf50',background:'rgba(76,175,80,0.1)',padding:'2px 6px',borderRadius:4,fontWeight:'bold'}}>✓ {lastSaved}</span>}
+          {lastSaved && <span style={{fontSize:10,color:'#4caf50',background:'rgba(76,175,80,0.1)',padding:'2px 6px',borderRadius:4}}>✓ {lastSaved}</span>}
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {user && (
@@ -1165,7 +740,7 @@ function App() {
               <span style={{fontWeight:'bold',color:isDarkMode?'#fff':'#333',maxWidth:'100px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{user.displayName}</span>
             </div>
           )}
-          <button onClick={()=>setActiveModal('app_settings')} style={{padding:'6px 12px',background:isDarkMode?'#2a2a2a':'#f5f5f5',border:isDarkMode?'1px solid #444':'1px solid #ddd',borderRadius:'6px',cursor:'pointer',fontSize:'14px',fontWeight:'bold',display:'flex',alignItems:'center',gap:'4px',color:isDarkMode?'#fff':'#333'}}>⚙️</button>
+          <button onClick={()=>setActiveModal('app_settings')} style={{padding:'6px 12px',background:isDarkMode?'#2a2a2a':'#f5f5f5',border:isDarkMode?'1px solid #444':'1px solid #ddd',borderRadius:'6px',cursor:'pointer',fontSize:'14px',fontWeight:'bold'}}>⚙️</button>
           <button onClick={()=>setIsDarkMode(!isDarkMode)} style={{padding:'6px 8px',background:isDarkMode?'#2a2a2a':'#f5f5f5',border:isDarkMode?'1px solid #444':'1px solid #ddd',borderRadius:'6px',cursor:'pointer',fontSize:'16px'}}>{isDarkMode?"☀️":"🌙"}</button>
         </div>
       </div>
@@ -1173,7 +748,7 @@ function App() {
       <div className="main-layout">
         {isManageMode && sortBy === "manual" && (
           <div className="sort-helper">
-            <span className="sort-hint">✨ 写真カードをドラッグして自由に並び替えられます<br /><small>アイテムの間に入れると挿入できます</small></span>
+            <span className="sort-hint">✨ ハンドル（⋮⋮）を長押ししてドラッグ<br /><small>アイテムの間に入れられます</small></span>
             <button className="reset-order-btn" onClick={resetOrder}>🔄 現在の並び順をリセット</button>
           </div>
         )}
@@ -1184,8 +759,8 @@ function App() {
               <div className="stats-label">収集率</div>
               <div className="progress-circle-container">
                 <div className="progress-circle-bg"></div>
-                <div className="progress-circle" style={{background:`conic-gradient(${isDarkMode?'var(--color-primary)':'var(--light-primary)'} 0% ${stats.totalSlots?Math.round((stats.collectedSlots/stats.totalSlots)*100):0}%, transparent ${stats.totalSlots?Math.round((stats.collectedSlots/stats.totalSlots)*100):0}% 100%)`}}></div>
-                <div className="progress-circle-mask"><span className="progress-percentage">{stats.totalSlots?Math.round((stats.collectedSlots/stats.totalSlots)*100):0}%</span></div>
+                <div className="progress-circle" style={{background:`conic-gradient(${isDarkMode?'var(--color-primary)':'var(--light-primary)'} 0% ${stats.totalSlots?Math.round(stats.collectedSlots/stats.totalSlots*100):0}%, transparent ${stats.totalSlots?Math.round(stats.collectedSlots/stats.totalSlots*100):0}% 100%)`}}></div>
+                <div className="progress-circle-mask"><span className="progress-percentage">{stats.totalSlots?Math.round(stats.collectedSlots/stats.totalSlots*100):0}%</span></div>
               </div>
               <div className="stats-fraction">{stats.collectedSlots} / {stats.totalSlots}</div>
             </div>
@@ -1193,8 +768,8 @@ function App() {
               <div className="stats-label">コンプリート率</div>
               <div className="progress-circle-container">
                 <div className="progress-circle-bg"></div>
-                <div className="progress-circle" style={{background:`conic-gradient(${isDarkMode?'var(--color-success)':'var(--light-success)'} 0% ${stats.totalKinds?Math.round((stats.completedKinds/stats.totalKinds)*100):0}%, transparent ${stats.totalKinds?Math.round((stats.completedKinds/stats.totalKinds)*100):0}% 100%)`}}></div>
-                <div className="progress-circle-mask"><span className="progress-percentage">{stats.totalKinds?Math.round((stats.completedKinds/stats.totalKinds)*100):0}%</span></div>
+                <div className="progress-circle" style={{background:`conic-gradient(${isDarkMode?'var(--color-success)':'var(--light-success)'} 0% ${stats.totalKinds?Math.round(stats.completedKinds/stats.totalKinds*100):0}%, transparent ${stats.totalKinds?Math.round(stats.completedKinds/stats.totalKinds*100):0}% 100%)`}}></div>
+                <div className="progress-circle-mask"><span className="progress-percentage">{stats.totalKinds?Math.round(stats.completedKinds/stats.totalKinds*100):0}%</span></div>
               </div>
               <div className="stats-fraction">{stats.completedKinds} / {stats.totalKinds}</div>
             </div>
@@ -1212,7 +787,7 @@ function App() {
             <button className="manage-toggle" onClick={()=>setIsManageMode(!isManageMode)} style={{color:isManageMode?'#ff5252':''}}>✏️</button>
           </div>
           <div className="filter-row">
-            <input className="search-input" placeholder="検索..." value={search} onChange={e=>setSearch(e.target.value)} />
+            <input className="search-input" placeholder="名前またはタグで検索..." value={search} onChange={e=>setSearch(e.target.value)} />
             <button className={`wish-toggle-btn ${showOnlyWish?'active':''}`} onClick={()=>setShowOnlyWish(!showOnlyWish)}>⭐ のみ</button>
             <select className="sort-select" value={sortBy} onChange={e=>setSortBy(e.target.value)}>
               <option value="manual">手動並び替え</option>
@@ -1231,9 +806,8 @@ function App() {
               <li><button className={`btn-item ${selectedGroup==='ALL'?'active':''}`} onClick={()=>{setSelectedGroup('ALL');setSelectedMember('ALL');}}>ALL</button></li>
               {groups.map(g=>(
                 <li key={g.name}>
-                  <button className={`btn-item ${selectedGroup===g.name?'active':''}`} onClick={()=>{setSelectedGroup(g.name);setSelectedMember(g.members.length>0?g.members[0]:'ALL');}}>
-                    {g.name}
-                    {isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(g.name);setActiveModal('delete_group');}}>×</button>}
+                  <button className={`btn-item ${selectedGroup===g.name?'active':''}`} onClick={()=>{setSelectedGroup(g.name);setSelectedMember(g.members.length?g.members[0]:'ALL');}}>
+                    {g.name}{isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(g.name);setActiveModal('delete_group');}}>×</button>}
                   </button>
                 </li>
               ))}
@@ -1247,8 +821,7 @@ function App() {
               {selectedGroup!=='ALL' && groups.find(g=>g.name===selectedGroup)?.members.map(m=>(
                 <li key={m}>
                   <button className={`btn-item ${selectedMember===m?'active':''}`} onClick={()=>setSelectedMember(m)}>
-                    {m}
-                    {isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(m);setActiveModal('delete_member');}}>×</button>}
+                    {m}{isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(m);setActiveModal('delete_member');}}>×</button>}
                   </button>
                 </li>
               ))}
@@ -1260,103 +833,101 @@ function App() {
           <button className="add-trigger-btn" onClick={()=>setActiveModal('add_photo')}>＋ 生写真を追加</button>
         )}
 
-        {sortedItems.map(i => {
-          const comp = (i.yori>0||i.syori>0) && (i.chuu>0||i.schuu>0) && (i.hiki>0||i.shiki>0);
-          const isSelected = selectedItemIds.includes(i.id);
-          const isSignExpanded = expandedSignItems.includes(i.id);
-          const isDragged = draggedItemId === i.id || touchDraggedItemId === i.id;
-          const isDragOver = dragOverItemId === i.id;
-          
-          return (
-            <div 
-              key={i.id} 
-              data-item-id={i.id}
-              className={`photo-card ${comp ? 'is-complete' : ''} ${i.isWish ? 'is-wish' : ''} ${isDragged ? 'is-dragging' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragOver && dropPosition ? `drop-${dropPosition}` : ''}`}
-              style={{background: (isManageMode && isSelected) ? 'rgba(255, 82, 82, 0.1)' : ''}}
-              draggable={isManageMode && sortBy === "manual"}
-              onDragStart={(e) => handleDragStart(e, i.id)}
-              onDragOver={(e) => handleDragOver(e, i.id)}
-              onDragLeave={handleDragLeave}
-              onDragEnd={handleDragEnd}
-              onDrop={(e) => handleDrop(e, i.id)}
-              // スマホタッチイベント
-              onTouchStart={(e) => handleTouchStart(e, i.id)}
-              onTouchMove={(e) => handleTouchMove(e, i.id)}
-              onTouchEnd={(e) => handleTouchEnd(e, i.id)}
-              onTouchCancel={(e) => handleTouchEnd(e, i.id)}
-            >
-              {isManageMode && sortBy === "manual" && (
-                <div className="drag-handle" title="ドラッグして並び替え" onTouchStart={(e)=>{e.stopPropagation();handleTouchStart(e,i.id);}}>⋮⋮</div>
-              )}
-              
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
-                {isManageMode && <input type="checkbox" className="selection-checkbox" checked={isSelected} onChange={()=>toggleSelectItem(i.id)} />}
-                <div className="img-container">
-                  <div className="btn-img-add" onClick={()=>openEditImgModal(i)}>＋</div>
-                  <div style={{width:65,cursor:'pointer'}} onClick={()=>{
-                    const imgs = [i.thumbnail, ...(i.otherImages||[])].filter(Boolean);
-                    if(imgs.length) setViewer({ images: imgs, index: 0, name: i.name });
-                    else openEditImgModal(i);
-                  }}>
-                    {i.thumbnail ? <img src={i.thumbnail} style={{width:'100%',borderRadius:4}} /> : <div style={{background:'#eee',height:60,borderRadius:4,fontSize:8,textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center',color:'#888'}}>画像なし</div>}
+        {/* ソート可能なリストコンテナ */}
+        <div ref={listContainerRef} style={isManageMode && sortBy==="manual" ? { minHeight: '50px' } : {}}>
+          {sortedItems.map(i => {
+            const comp = (i.yori>0||i.syori>0) && (i.chuu>0||i.schuu>0) && (i.hiki>0||i.shiki>0);
+            const isSelected = selectedItemIds.includes(i.id);
+            const isSignExpanded = expandedSignItems.includes(i.id);
+            return (
+              <div key={i.id} data-item-id={i.id} className={`photo-card ${comp?'is-complete':''} ${i.isWish?'is-wish':''}`} style={{background: isManageMode && isSelected ? 'rgba(255,82,82,0.1)' : ''}}>
+                {isManageMode && sortBy === "manual" && (
+                  <div className="drag-handle" title="長押ししてドラッグ">⋮⋮</div>
+                )}
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+                  {isManageMode && <input type="checkbox" className="selection-checkbox" checked={isSelected} onChange={()=>toggleSelectItem(i.id)} />}
+                  <div className="img-container">
+                    <div className="btn-img-add" onClick={()=>openEditImgModal(i)}>＋</div>
+                    <div style={{width:65,cursor:'pointer'}} onClick={()=>{
+                      const imgs = [i.thumbnail, ...(i.otherImages||[])].filter(Boolean);
+                      if(imgs.length) setViewer({images:imgs,index:0,name:i.name}); else openEditImgModal(i);
+                    }}>
+                      {i.thumbnail ? <img src={i.thumbnail} style={{width:'100%',borderRadius:4}} /> : <div style={{background:'#eee',height:60,borderRadius:4,fontSize:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#888'}}>画像なし</div>}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="card-content">
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <div style={{flex:1,minWidth:0,display:'flex',alignItems:'center',gap:8}}>
-                    <button className={`wish-toggle ${i.isWish?'active':''}`} onClick={()=>updateItem(i.id,'isWish',!i.isWish)}>⭐</button>
-                    {editingNameId===i.id ? (
-                      <input className="edit-name-input" autoFocus value={i.name} onChange={e=>updateItem(i.id,'name',e.target.value)} onBlur={()=>setEditingNameId(null)} onKeyDown={e=>{if(e.key==='Enter')setEditingNameId(null);}} />
-                    ) : (
-                      <span className="name-display" onClick={()=>setEditingNameId(i.id)}>{i.name} {comp && "👍️"}</span>
+                <div className="card-content">
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div style={{flex:1,minWidth:0,display:'flex',alignItems:'center',gap:8}}>
+                      <button className={`wish-toggle ${i.isWish?'active':''}`} onClick={()=>updateItem(i.id,'isWish',!i.isWish)}>⭐</button>
+                      {editingNameId===i.id ? (
+                        <input className="edit-name-input" autoFocus value={i.name} onChange={e=>updateItem(i.id,'name',e.target.value)} onBlur={()=>setEditingNameId(null)} onKeyDown={e=>e.key==='Enter'&&setEditingNameId(null)} />
+                      ) : (
+                        <span className="name-display" onClick={()=>setEditingNameId(i.id)}>{i.name} {comp && "👍️"}</span>
+                      )}
+                    </div>
+                    <button onClick={()=>{setTargetName(i.name);setTargetId(i.id);setActiveModal('delete_photo');}} style={{color:'#999',border:'none',background:'none',cursor:'pointer'}}>✕</button>
+                  </div>
+                  
+                  {/* ①タグ表示エリア */}
+                  <div className="tags-container" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                    {(i.tags || []).map(tag => (
+                      <span key={tag} className="tag-badge" style={{ background: isDarkMode?'#444':'#e0e0e0', padding:'2px 8px', borderRadius:'12px', fontSize:'11px', display:'inline-flex', alignItems:'center' }}>
+                        #{tag}
+                        {isManageMode && <button onClick={()=>removeTag(i.id, tag)} style={{ marginLeft:'4px', background:'none', border:'none', color:'#999', cursor:'pointer' }}>×</button>}
+                      </span>
+                    ))}
+                    {isManageMode && (
+                      <form onSubmit={(e)=>{ e.preventDefault(); const input = e.target.elements.tag; if(input.value){ addTag(i.id, input.value); input.value=''; } }} style={{ display:'inline-flex' }}>
+                        <input type="text" name="tag" placeholder="タグ追加" style={{ width:'80px', fontSize:'11px', padding:'2px 4px', borderRadius:'12px', border:'1px solid #ccc' }} />
+                      </form>
                     )}
                   </div>
-                  <button onClick={()=>{setTargetName(i.name);setTargetId(i.id);setActiveModal('delete_photo');}} style={{color:'#999',border:'none',background:'none',cursor:'pointer'}}>✕</button>
-                </div>
-                <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
-                  {[ {k:'yori',l:'寄'}, {k:'chuu',l:'中'}, {k:'hiki',l:'引'} ].map(o => (
-                    <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-stock' : ''}`}>
-                      <span style={{fontSize:9,padding:'0 4px',fontWeight:'bold'}}>{o.l}</span>
-                      <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
-                      <span className="qty-val">{i[o.k]||0}</span>
-                      <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,(parseInt(i[o.k])||0)+1)}>+</button>
-                    </div>
-                  ))}
-                </div>
-                <div className="sign-counters-container">
-                  <button className={`sign-counters-toggle ${isSignExpanded?'active':''}`} onClick={()=>toggleSignCounters(i.id)}>サイン付きカウンター</button>
-                  <div className={`sign-counters-content ${isSignExpanded?'expanded':''}`}>
-                    {[ {k:'syori',l:'サイン寄'}, {k:'schuu',l:'サイン中'}, {k:'shiki',l:'サイン引'} ].map(o => (
-                      <div key={o.k} className={`counter-group ${i[o.k] > 0 ? 'has-sign' : ''}`}>
+
+                  <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:8}}>
+                    {[{k:'yori',l:'寄'},{k:'chuu',l:'中'},{k:'hiki',l:'引'}].map(o=>(
+                      <div key={o.k} className={`counter-group ${i[o.k]>0?'has-stock':''}`}>
                         <span style={{fontSize:9,padding:'0 4px',fontWeight:'bold'}}>{o.l}</span>
-                        <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,Math.max(0,(parseInt(i[o.k])||0)-1))}>-</button>
+                        <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,Math.max(0,(i[o.k]||0)-1))}>-</button>
                         <span className="qty-val">{i[o.k]||0}</span>
-                        <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,(parseInt(i[o.k])||0)+1)}>+</button>
+                        <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,(i[o.k]||0)+1)}>+</button>
                       </div>
                     ))}
                   </div>
-                </div>
-                <div className="row-inputs" style={{flexWrap:'wrap',gap:'8px',marginTop:'8px'}}>
-                  <select className="source-select" value={i.source||"入手先"} onChange={e=>updateItem(i.id,'source',e.target.value)} style={{height:'36px'}}>
-                    {SOURCE_OPTIONS.map(opt=><option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                  <input className="details-input" style={{flex:'1 1 150px',height:'36px'}} placeholder="メモ" value={i.memo||""} onChange={e=>updateItem(i.id,'memo',e.target.value)} />
-                  <div className="price-wrapper">
-                    <input className="details-input" style={{width:'100%'}} placeholder="価格" value={formatWithComma(i.price)} onChange={e=>updateItem(i.id,'price',e.target.value.replace(/\D/g,'').slice(0,7))} />
-                    <span className="currency-unit">円</span>
+                  <div className="sign-counters-container">
+                    <button className={`sign-counters-toggle ${isSignExpanded?'active':''}`} onClick={()=>toggleSignCounters(i.id)}>サイン付きカウンター</button>
+                    <div className={`sign-counters-content ${isSignExpanded?'expanded':''}`}>
+                      {[{k:'syori',l:'サイン寄'},{k:'schuu',l:'サイン中'},{k:'shiki',l:'サイン引'}].map(o=>(
+                        <div key={o.k} className={`counter-group ${i[o.k]>0?'has-sign':''}`}>
+                          <span style={{fontSize:9,padding:'0 4px',fontWeight:'bold'}}>{o.l}</span>
+                          <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,Math.max(0,(i[o.k]||0)-1))}>-</button>
+                          <span className="qty-val">{i[o.k]||0}</span>
+                          <button className="btn-qty" onClick={()=>updateItem(i.id,o.k,(i[o.k]||0)+1)}>+</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="row-inputs" style={{flexWrap:'wrap',gap:'8px',marginTop:'8px'}}>
+                    <select className="source-select" value={i.source||"入手先"} onChange={e=>updateItem(i.id,'source',e.target.value)} style={{height:'36px'}}>
+                      {SOURCE_OPTIONS.map(opt=><option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                    <input className="details-input" style={{flex:'1 1 150px',height:'36px'}} placeholder="メモ" value={i.memo||""} onChange={e=>updateItem(i.id,'memo',e.target.value)} />
+                    <div className="price-wrapper">
+                      <input className="details-input" style={{width:'100%'}} placeholder="価格" value={formatWithComma(i.price)} onChange={e=>updateItem(i.id,'price',e.target.value.replace(/\D/g,'').slice(0,7))} />
+                      <span className="currency-unit">円</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       {isManageMode && sortedItems.length > 0 && (
         <div className="selection-bar">
           <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <input type="checkbox" className="selection-checkbox" checked={selectedItemIds.length>0 && selectedItemIds.length===sortedItems.length} onChange={(e)=>{if(e.target.checked) setSelectedItemIds(sortedItems.map(it=>it.id)); else setSelectedItemIds([]);}} />
+            <input type="checkbox" className="selection-checkbox" checked={selectedItemIds.length>0 && selectedItemIds.length===sortedItems.length} onChange={e=>{if(e.target.checked) setSelectedItemIds(sortedItems.map(it=>it.id)); else setSelectedItemIds([]);}} />
             <span style={{fontSize:12,fontWeight:'bold'}}>{selectedItemIds.length}件選択中</span>
           </div>
           <div style={{display:'flex',gap:8}}>
@@ -1370,7 +941,7 @@ function App() {
       {viewer && (
         <div className="lightbox" onClick={()=>setViewer(null)}>
           <div className="lightbox-close">×</div>
-          <img src={viewer.images[viewer.index]} onClick={(e)=>{e.stopPropagation();setViewer({...viewer,index:(viewer.index+1)%viewer.images.length});}} />
+          <img src={viewer.images[viewer.index]} onClick={e=>{e.stopPropagation(); setViewer({...viewer, index:(viewer.index+1)%viewer.images.length});}} />
           <div className="lightbox-info"><strong>{viewer.name}</strong><br/>{viewer.index+1} / {viewer.images.length}</div>
         </div>
       )}
@@ -1380,79 +951,117 @@ function App() {
           <div className="modal-content" onClick={e=>e.stopPropagation()}>
             {activeModal === 'app_settings' && (
               <div>
-                <h3 style={{margin:'0 0 15px 0'}}>設定</h3>
+                <h3>設定</h3>
                 {user && (
-                  <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px',border:'1px solid '+(isDarkMode?'#444':'#eee')}}>
+                  <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
                     <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'10px'}}>
                       <img src={user.photoURL} alt="avatar" style={{width:40,height:40,borderRadius:'50%'}} />
-                      <div><div style={{fontWeight:'bold',fontSize:'14px'}}>{user.displayName}</div><div style={{fontSize:'11px',color:'#666'}}>{user.email}</div></div>
+                      <div><div style={{fontWeight:'bold'}}>{user.displayName}</div><div style={{fontSize:'11px',color:'#666'}}>{user.email}</div></div>
                     </div>
                     {lastSaved && <div style={{fontSize:'12px',color:'#4caf50',textAlign:'center'}}>✓ 最終保存: {lastSaved}</div>}
                   </div>
                 )}
-                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px',border:'1px solid '+(isDarkMode?'#444':'#eee')}}>
-                  <h4 style={{marginTop:0,marginBottom:'10px'}}>クラウド同期</h4>
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>クラウド同期</h4>
                   <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
-                    <button onClick={handleManualSave} style={{flex:1,padding:'10px',background:'#4caf50',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold'}}>💾 手動保存</button>
-                    <button onClick={handleManualLoad} style={{flex:1,padding:'10px',background:'#2196f3',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold'}}>🔄 手動読込</button>
+                    <button onClick={handleManualSave} style={{flex:1,padding:'10px',background:'#4caf50',color:'white',border:'none',borderRadius:'8px'}}>💾 手動保存</button>
+                    <button onClick={handleManualLoad} style={{flex:1,padding:'10px',background:'#2196f3',color:'white',border:'none',borderRadius:'8px'}}>🔄 手動読込</button>
                   </div>
-                  <p style={{fontSize:'11px',color:'#666',margin:0}}>データは自動的にクラウドに保存されます。別の端末で同じアカウントでログインすると同期されます。</p>
                 </div>
-                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px',border:'1px solid '+(isDarkMode?'#444':'#eee')}}>
-                  <h4 style={{marginTop:0,marginBottom:'10px'}}>データ操作</h4>
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>データ操作</h4>
                   <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
-                    <button onClick={handleCSVExport} style={{padding:'10px',background:'#ff9800',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold'}}>📤 CSV出力（カンマ区切り）</button>
-                    <button onClick={handleTSVExport} style={{padding:'10px',background:'#9c27b0',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold'}}>📤 TSV出力（タブ区切り）</button>
-                    <label style={{padding:'10px',background:'#2196f3',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'12px',fontWeight:'bold',textAlign:'center'}}>
+                    <button onClick={handleCSVExport} style={{padding:'10px',background:'#ff9800',color:'white',border:'none',borderRadius:'8px'}}>📤 CSV出力</button>
+                    <button onClick={handleTSVExport} style={{padding:'10px',background:'#9c27b0',color:'white',border:'none',borderRadius:'8px'}}>📤 TSV出力</button>
+                    <label style={{padding:'10px',background:'#2196f3',color:'white',border:'none',borderRadius:'8px',textAlign:'center',cursor:'pointer'}}>
                       📥 CSV/TSV取込<input type="file" accept=".csv,.tsv,.txt" style={{display:'none'}} onChange={handleImportCSV} />
                     </label>
-                    {availableTemplates.length > 0 && (
+                    {availableTemplates.length>0 && (
                       <div style={{marginTop:'10px'}}>
-                        <div style={{fontSize:'11px',color:'#666',marginBottom:'5px'}}>テンプレートから読み込み ({availableTemplates.length}件):</div>
+                        <div style={{fontSize:'11px'}}>テンプレート:</div>
                         <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'5px'}}>
-                          {availableTemplates.map(fileName=>(
-                            <button key={fileName} onClick={()=>loadExternalTemplate(fileName)} style={{padding:'8px',background:'#9c27b0',color:'white',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'11px',fontWeight:'bold',textAlign:'center'}}>{fileName.replace('.csv','')}</button>
+                          {availableTemplates.map(f=>(
+                            <button key={f} onClick={()=>loadExternalTemplate(f)} style={{padding:'8px',background:'#9c27b0',color:'white',border:'none',borderRadius:'6px'}}>{f.replace('.csv','')}</button>
                           ))}
                         </div>
                       </div>
                     )}
-                    {availableTemplates.length === 0 && (
-                      <div style={{marginTop:'10px',padding:'10px',background:isDarkMode?'#333':'#f5f5f5',borderRadius:'8px',textAlign:'center'}}>
-                        <p style={{fontSize:'11px',color:'#666',margin:0}}>テンプレートファイルが見つかりません。</p>
-                      </div>
-                    )}
                   </div>
                 </div>
-                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px',border:'1px solid '+(isDarkMode?'#444':'#eee')}}>
-                  <h4 style={{marginTop:0,marginBottom:'10px'}}>表示設定</h4>
-                  <label style={{fontSize:'12px',color:'#888',display:'flex',justifyContent:'space-between'}}><span>サイトの幅</span><b>{appWidth==='100%'?'フル画面':appWidth}</b></label>
-                  <input type="range" min="350" max="1200" step="10" value={appWidth==='100%'?1200:parseInt(appWidth)} onChange={e=>setAppWidth(`${e.target.value}px`)} style={{width:'100%',height:'30px',cursor:'pointer',accentColor:'#2196f3'}} />
+                
+                {/* ⑨共有機能パネル */}
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>共有リスト</h4>
+                  <div style={{marginBottom:'10px'}}>
+                    <button onClick={()=> {
+                      if (selectedItemIds.length === 0) { showError("アイテムを選択してください"); return; }
+                      const name = prompt("リスト名を入力（省略可）");
+                      createShareListWithItems(name || "共有リスト", selectedItemIds);
+                    }} style={{padding:'8px 16px',background:'#3f51b5',color:'white',border:'none',borderRadius:'8px',width:'100%'}}>
+                      🔗 選択中のアイテムで共有リスト作成
+                    </button>
+                  </div>
+                  <div>
+                    <h5>作成済みリスト</h5>
+                    {shareLists.length === 0 && <p style={{fontSize:'12px',color:'#888'}}>まだありません</p>}
+                    {shareLists.map(list => (
+                      <div key={list.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',padding:'8px',background:isDarkMode?'#333':'#eee',borderRadius:'6px'}}>
+                        <span style={{fontSize:'12px'}}>{list.listName || '無題'}</span>
+                        <button onClick={() => {
+                          const url = window.location.origin + window.location.pathname + '?share=' + list.id;
+                          navigator.clipboard.writeText(url);
+                          showError("URLをコピーしました");
+                        }} style={{padding:'4px 8px',background:'#2196f3',color:'white',border:'none',borderRadius:'4px',fontSize:'11px'}}>URLコピー</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* リクエスト一覧 */}
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>リクエスト受信箱</h4>
+                  {requests.length === 0 && <p style={{fontSize:'12px',color:'#888'}}>リクエストはありません</p>}
+                  {requests.map(req => (
+                    <div key={req.id} style={{marginBottom:'8px',padding:'8px',background:isDarkMode?'#333':'#eee',borderRadius:'6px'}}>
+                      <div style={{fontSize:'12px'}}><strong>{req.requesterName}</strong> さんがアイテムをリクエスト</div>
+                      <div style={{fontSize:'11px',color:'#666'}}>ステータス: {req.status}</div>
+                      {req.status === 'pending' && (
+                        <div style={{display:'flex',gap:'4px',marginTop:'4px'}}>
+                          <button onClick={()=> updateRequestStatus(req.id, 'approved')} style={{padding:'4px 8px',background:'#4caf50',color:'white',border:'none',borderRadius:'4px'}}>承認</button>
+                          <button onClick={()=> updateRequestStatus(req.id, 'rejected')} style={{padding:'4px 8px',background:'#f44336',color:'white',border:'none',borderRadius:'4px'}}>拒否</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
+                  <h4>表示設定</h4>
+                  <label style={{display:'flex',justifyContent:'space-between',fontSize:'12px'}}><span>サイトの幅</span><b>{appWidth==='100%'?'フル画面':appWidth}</b></label>
+                  <input type="range" min="350" max="1200" step="10" value={appWidth==='100%'?1200:parseInt(appWidth)} onChange={e=>setAppWidth(`${e.target.value}px`)} style={{width:'100%',accentColor:'#2196f3'}} />
                   <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-                    <button onClick={()=>setAppWidth('400px')} style={quickBtnStyle(isDarkMode)}>スマホ</button>
-                    <button onClick={()=>setAppWidth('600px')} style={quickBtnStyle(isDarkMode)}>標準</button>
-                    <button onClick={()=>setAppWidth('900px')} style={quickBtnStyle(isDarkMode)}>ワイド</button>
-                    <button onClick={()=>setAppWidth('100%')} style={quickBtnStyle(isDarkMode)}>フル</button>
+                    {['400px','600px','900px','100%'].map(w=><button key={w} onClick={()=>setAppWidth(w)} style={quickBtnStyle(isDarkMode)}>{w==='100%'?'フル':w}</button>)}
                   </div>
                 </div>
                 <ul className="settings-list">
-                  <li onClick={resetAllOrder} style={{color:'#ff9800',fontWeight:'bold'}}>🔄 すべての並び順をリセット</li>
-                  <li onClick={handleCacheClear}>🗑️ キャッシュ（全データ）削除</li>
-                  <li onClick={()=>alert("規約；このサイトは個人の自己満足により作成されています。使用につきましては一切責任を負いません。また代々木アニメーション様、また=Love様の要望などがありましたら、こちらのサイトのすべての権利などを譲渡します。またこちらのサイトに置きまして利益を得ることはいたしておりません。")}>📜 規約</li>
-                  <li onClick={()=>window.open("https://github.com/Meowx7","_blank")}>🐱 GitHub</li>
-                  <li onClick={handleLogout} style={{color:'#ff5252',fontWeight:'bold'}}>🚪 ログアウト</li>
-                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 1.6.1</li>
+                  <li onClick={resetAllOrder} style={{color:'#ff9800'}}>🔄 すべての並び順リセット</li>
+                  <li onClick={handleCacheClear}>🗑️ キャッシュ削除</li>
+                  <li onClick={()=>alert("規約：個人利用のため、責任は負いかねます。")}>📜 規約</li>
+                  <li onClick={()=>window.open("https://github.com/Meowx7")}>🐱 GitHub</li>
+                  <li onClick={handleLogout} style={{color:'#ff5252'}}>🚪 ログアウト</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.0.0 (共有機能追加)</li>
                 </ul>
-                <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+                <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold'}}>閉じる</button>
               </div>
             )}
             {activeModal === 'add_photo' && (
-              <div><h3>新規追加</h3><input type="text" placeholder="生写真セット名" id="modal_name" autoFocus /><button onClick={()=>{const v=document.getElementById("modal_name").value;if(v){const newItem={id:genId(),group:selectedGroup,member:selectedMember,name:v,yori:0,chuu:0,hiki:0,syori:0,schuu:0,shiki:0,isWish:false,createdAt:Date.now(),memo:"",price:"",source:"入手先",thumbnail:"",otherImages:[],order:items.length};setItems(p=>[...p,newItem]);setActiveModal(null);}}} style={{width:'100%',padding:12,background:'#2196f3',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>追加</button></div>
+              <div><h3>新規追加</h3><input type="text" id="modal_name" autoFocus /><button onClick={()=>{const v=document.getElementById('modal_name').value; if(v){ const newItem={id:genId(),group:selectedGroup,member:selectedMember,name:v,yori:0,chuu:0,hiki:0,syori:0,schuu:0,shiki:0,isWish:false,createdAt:Date.now(),memo:'',price:'',source:'入手先',thumbnail:'',otherImages:[],tags:[],order:items.length}; setItems(p=>[...p,newItem]); setActiveModal(null); }}} style={{width:'100%',padding:12,background:'#2196f3',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>追加</button></div>
             )}
             {activeModal === 'add_group' && (
-              <div><h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim();if(!val)return showError("グループ名を入力してください");setGroups(p=>[...p,{name:val,members:[]}]);setActiveModal(null);}}}/></div>
+              <div><h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim(); if(!val) return showError("入力してください"); setGroups(p=>[...p,{name:val,members:[]}]); setActiveModal(null); }}}/></div>
             )}
             {activeModal === 'add_member' && (
-              <div><h3>メンバー追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim();if(!val)return showError("名前を入力してください");setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:[...g.members,val]}:g));setActiveModal(null);}}}/></div>
+              <div><h3>メンバー追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim(); if(!val) return showError("入力してください"); setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:[...g.members,val]}:g)); setActiveModal(null); }}}/></div>
             )}
             {activeModal === 'edit_img' && (
               <div>
@@ -1462,23 +1071,23 @@ function App() {
                   {tempImages.map((u,idx)=><div key={idx} style={{position:'relative'}}><img src={u} style={{width:'100%',height:60,objectFit:'cover',borderRadius:4}}/><button onClick={()=>setTempImages(p=>p.filter((_,i)=>i!==idx))} style={{position:'absolute',top:0,right:0,background:'red',color:'white',border:'none'}}>×</button></div>)}
                 </div>
                 <label style={{display:'block',padding:10,background:'#2196f3',color:'white',textAlign:'center',borderRadius:8,cursor:'pointer',marginBottom:10}}>
-                  端末から選択<input type="file" multiple style={{display:'none'}} onChange={async(e)=>{const files=Array.from(e.target.files);for(const f of files){const c=await compressImage(f);if(!tempMainUrl)setTempMainUrl(c);else setTempImages(p=>[...p,c]);}}}/>
+                  端末から選択<input type="file" multiple style={{display:'none'}} onChange={async(e)=>{const files=Array.from(e.target.files); for(const f of files){ const c=await compressImage(f); if(!tempMainUrl) setTempMainUrl(c); else setTempImages(p=>[...p,c]); }}}/>
                 </label>
-                <input type="text" placeholder="URLを貼り付けてEnter" onKeyDown={e=>{if(e.key==='Enter'&&e.target.value){const urls=e.target.value.split(/[, \n]+/).filter(Boolean);urls.forEach(u=>{if(!tempMainUrl)setTempMainUrl(u);else setTempImages(p=>[...p,u]);});e.target.value="";}}}/>
+                <input type="text" placeholder="URLを貼り付け" onKeyDown={e=>{if(e.key==='Enter' && e.target.value){ const urls=e.target.value.split(/[, \n]+/).filter(Boolean); urls.forEach(u=>{if(!tempMainUrl) setTempMainUrl(u); else setTempImages(p=>[...p,u]);}); e.target.value=""; }}}/>
                 <button onClick={saveImages} style={{width:'100%',padding:12,background:'#4caf50',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>保存</button>
               </div>
             )}
             {activeModal === 'delete_group' && (
-              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.group!==targetName));setGroups(p=>p.filter(g=>g.name!==targetName));if(selectedGroup===targetName){setSelectedGroup("ALL");setSelectedMember("ALL");}setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.group!==targetName)); setGroups(p=>p.filter(g=>g.name!==targetName)); if(selectedGroup===targetName){setSelectedGroup("ALL");setSelectedMember("ALL");} setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
             )}
             {activeModal === 'delete_member' && (
-              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.member!==targetName));setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:g.members.filter(m=>m!==targetName)}:g));if(selectedMember===targetName)setSelectedMember("ALL");setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.member!==targetName)); setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:g.members.filter(m=>m!==targetName)}:g)); if(selectedMember===targetName) setSelectedMember("ALL"); setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
             )}
             {activeModal === 'delete_photo' && (
-              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.id!==targetId));setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
+              <div><h3>「{targetName}」を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>i.id!==targetId)); setActiveModal(null);}} style={{width:'100%',padding:12,background:'#ff5252',color:'#fff',border:'none',borderRadius:8}}>削除</button></div>
             )}
             {activeModal === 'delete_batch' && (
-              <div><h3>{targetName}を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>!selectedItemIds.includes(i.id)));setSelectedItemIds([]);setActiveModal(null);}} style={{width:'100%',padding:12,background:'#000',color:'#fff',border:'none',borderRadius:8}}>一括削除を実行</button></div>
+              <div><h3>{targetName}を削除？</h3><button onClick={()=>{setItems(p=>p.filter(i=>!selectedItemIds.includes(i.id))); setSelectedItemIds([]); setActiveModal(null);}} style={{width:'100%',padding:12,background:'#000',color:'#fff',border:'none',borderRadius:8}}>一括削除</button></div>
             )}
           </div>
         </div>
