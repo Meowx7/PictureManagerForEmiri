@@ -224,13 +224,17 @@ function App() {
   const [editingTagId, setEditingTagId] = useState(null);
   const [tempTagInput, setTempTagInput] = useState("");
   
+  // グループ・メンバー追加用のstate（新規）
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newMemberName, setNewMemberName] = useState("");
+  
   // 共有機能関連
   const [shareLists, setShareLists] = useState([]);
   const [viewingShareId, setViewingShareId] = useState(null);
   const [sharedItems, setSharedItems] = useState([]);
   const [shareOwner, setShareOwner] = useState(null);
   const [shareListName, setShareListName] = useState("");
-  const [requests, setRequests] = useState([]);
+  const [requests, setRequests] = useState([]); // 未解決リクエストのみ保持
   
   // Sortable用のref
   const listContainerRef = useRef(null);
@@ -263,7 +267,7 @@ function App() {
     setAvailableTemplates(existing);
   }, []);
 
-  // Firebaseログイン状態監視（確実に実行）
+  // Firebaseログイン状態監視
   useEffect(() => {
     if (!window.fb || !window.fb.auth) {
       console.error("Firebaseが初期化されていません");
@@ -281,7 +285,7 @@ function App() {
         if (currentUser) {
           loadFromFirestore(currentUser.uid);
           loadShareLists(currentUser.uid);
-          loadRequests(currentUser.uid);
+          loadPendingRequests(currentUser.uid);
         }
       },
       (error) => {
@@ -291,7 +295,6 @@ function App() {
       }
     );
     
-    // 3秒後に強制的に準備完了（安全のため）
     const timer = setTimeout(() => {
       if (!isAuthReady) {
         console.warn("Auth state observer timeout - forcing ready");
@@ -319,10 +322,12 @@ function App() {
     }
   };
 
-  // 受け取ったリクエスト一覧を読み込み
-  const loadRequests = async (uid) => {
+  // 未解決（pending）のリクエストのみ読み込む
+  const loadPendingRequests = async (uid) => {
     try {
-      const q = window.fb.collection('requests').where('ownerId', '==', uid);
+      const q = window.fb.collection('requests')
+        .where('ownerId', '==', uid)
+        .where('status', '==', 'pending');
       const snapshot = await q.get();
       const reqs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRequests(reqs);
@@ -338,7 +343,7 @@ function App() {
     const itemsToShare = items
       .filter(i => selectedItemIds.includes(i.id))
       .map(i => {
-        const { id, ...rest } = i; // IDはコピーしない
+        const { id, ...rest } = i;
         return cleanData(rest);
       });
     const shareData = {
@@ -358,12 +363,24 @@ function App() {
     }
   };
 
+  // 共有リストを削除
+  const deleteShareList = async (shareId) => {
+    if (!confirm("この共有リストを削除しますか？")) return;
+    try {
+      await window.fb.collection('shares').doc(shareId).delete();
+      showError("共有リストを削除しました");
+      loadShareLists(user.uid);
+    } catch (e) {
+      console.error("共有リスト削除エラー:", e);
+      showError("削除失敗: " + e.message);
+    }
+  };
+
   // 共有リストを読み込む（公開ビュー用）
   const loadSharedList = async (shareId) => {
     try {
       const docRef = window.fb.collection('shares').doc(shareId);
       const snap = await docRef.get();
-      // ★ 修正点：exists はプロパティなので () 不要
       if (snap.exists) {
         const data = snap.data();
         setShareOwner(data.ownerId);
@@ -402,11 +419,12 @@ function App() {
     }
   };
 
-  // リクエストの状態更新
+  // リクエストの状態更新（承認/拒否）
   const updateRequestStatus = async (requestId, status) => {
     try {
       await window.fb.collection('requests').doc(requestId).set({ status }, { merge: true });
-      loadRequests(user.uid);
+      loadPendingRequests(user.uid);
+      showError(`リクエストを${status === 'approved' ? '承認' : '拒否'}しました`);
     } catch (e) {
       console.error("リクエスト更新エラー:", e);
       showError("更新失敗");
@@ -418,7 +436,6 @@ function App() {
       setIsLoading(true);
       const docRef = window.fb.collection('users').doc(userId).collection('data').doc('photocards');
       const snap = await docRef.get();
-      // ★ 修正点：exists はプロパティなので () 不要
       if (snap.exists) {
         const data = snap.data();
         if (Array.isArray(data.groups) && data.groups.length) {
@@ -509,7 +526,7 @@ function App() {
     }));
   };
 
-  // SortableJSのセットアップ（スマホ最適化）
+  // SortableJSのセットアップ
   useEffect(() => {
     if (!isManageMode || sortBy !== "manual" || !listContainerRef.current || viewingShareId) {
       if (sortableInstance.current) {
@@ -704,6 +721,24 @@ function App() {
   const openEditImgModal = (item) => { setEditItemId(item.id); setTempMainUrl(item.thumbnail||""); setTempImages(item.otherImages||[]); setActiveModal('edit_img'); };
   const saveImages = () => { setItems(p => p.map(it => it.id===editItemId ? {...it, thumbnail: tempMainUrl, otherImages: tempImages} : it)); setActiveModal(null); };
   const handleCacheClear = () => { if(confirm("全データを削除しますか？")) { localStorage.removeItem(STORAGE_KEY); location.reload(); } };
+
+  // グループ追加処理
+  const handleAddGroup = () => {
+    const val = newGroupName.trim();
+    if (!val) { showError("グループ名を入力してください"); return; }
+    setGroups(p => [...p, { name: val, members: [] }]);
+    setNewGroupName("");
+    setActiveModal(null);
+  };
+
+  // メンバー追加処理
+  const handleAddMember = () => {
+    const val = newMemberName.trim();
+    if (!val) { showError("メンバー名を入力してください"); return; }
+    setGroups(p => p.map(g => g.name === selectedGroup ? { ...g, members: [...g.members, val] } : g));
+    setNewMemberName("");
+    setActiveModal(null);
+  };
 
   // ログイン準備中の表示
   if (!isAuthReady) {
@@ -907,7 +942,7 @@ function App() {
           </div>
 
           <div className="group-section">
-            <div className="section-title"><strong>グループ選択</strong><button className="add-btn" onClick={()=>setActiveModal('add_group')}>+</button></div>
+            <div className="section-title"><strong>グループ選択</strong><button className="add-btn" onClick={()=>{ setNewGroupName(""); setActiveModal('add_group'); }}>+</button></div>
             <ul className="button-list">
               <li><button className={`btn-item ${selectedGroup==='ALL'?'active':''}`} onClick={()=>{setSelectedGroup('ALL');setSelectedMember('ALL');}}>ALL</button></li>
               {groups.map(g=>(
@@ -921,7 +956,7 @@ function App() {
           </div>
 
           <div className="member-section">
-            <div className="section-title"><strong>メンバー選択</strong>{selectedGroup!=='ALL'&&selectedGroup&&<button className="add-btn" onClick={()=>setActiveModal('add_member')}>+</button>}</div>
+            <div className="section-title"><strong>メンバー選択</strong>{selectedGroup!=='ALL'&&selectedGroup&&<button className="add-btn" onClick={()=>{ setNewMemberName(""); setActiveModal('add_member'); }}>+</button>}</div>
             <ul className="button-list">
               <li><button className={`btn-item ${selectedMember==='ALL'?'active':''}`} onClick={()=>setSelectedMember('ALL')}>ALL</button></li>
               {selectedGroup!=='ALL' && groups.find(g=>g.name===selectedGroup)?.members.map(m=>(
@@ -1113,30 +1148,31 @@ function App() {
                     {shareLists.map(list => (
                       <div key={list.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',padding:'8px',background:isDarkMode?'#333':'#eee',borderRadius:'6px'}}>
                         <span style={{fontSize:'12px'}}>{list.listName || '無題'}</span>
-                        <button onClick={() => {
-                          const url = window.location.origin + window.location.pathname + '?share=' + list.id;
-                          navigator.clipboard.writeText(url);
-                          showError("URLをコピーしました");
-                        }} style={{padding:'4px 8px',background:'#2196f3',color:'white',border:'none',borderRadius:'4px',fontSize:'11px'}}>URLコピー</button>
+                        <div>
+                          <button onClick={() => {
+                            const url = window.location.origin + window.location.pathname + '?share=' + list.id;
+                            navigator.clipboard.writeText(url);
+                            showError("URLをコピーしました");
+                          }} style={{padding:'4px 8px',background:'#2196f3',color:'white',border:'none',borderRadius:'4px',fontSize:'11px',marginRight:'4px'}}>URL</button>
+                          <button onClick={() => deleteShareList(list.id)} style={{padding:'4px 8px',background:'#ff5252',color:'white',border:'none',borderRadius:'4px',fontSize:'11px'}}>削除</button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* リクエスト一覧 */}
+                {/* リクエスト受信箱（未解決のみ表示） */}
                 <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
-                  <h4>リクエスト受信箱</h4>
-                  {requests.length === 0 && <p style={{fontSize:'12px',color:'#888'}}>リクエストはありません</p>}
+                  <h4>リクエスト受信箱（未解決）</h4>
+                  {requests.length === 0 && <p style={{fontSize:'12px',color:'#888'}}>未解決のリクエストはありません</p>}
                   {requests.map(req => (
                     <div key={req.id} style={{marginBottom:'8px',padding:'8px',background:isDarkMode?'#333':'#eee',borderRadius:'6px'}}>
                       <div style={{fontSize:'12px'}}><strong>{req.requesterName}</strong> さんがアイテムをリクエスト</div>
-                      <div style={{fontSize:'11px',color:'#666'}}>ステータス: {req.status}</div>
-                      {req.status === 'pending' && (
-                        <div style={{display:'flex',gap:'4px',marginTop:'4px'}}>
-                          <button onClick={()=> updateRequestStatus(req.id, 'approved')} style={{padding:'4px 8px',background:'#4caf50',color:'white',border:'none',borderRadius:'4px'}}>承認</button>
-                          <button onClick={()=> updateRequestStatus(req.id, 'rejected')} style={{padding:'4px 8px',background:'#f44336',color:'white',border:'none',borderRadius:'4px'}}>拒否</button>
-                        </div>
-                      )}
+                      <div style={{fontSize:'11px',color:'#666'}}>アイテムID: {req.itemId}</div>
+                      <div style={{display:'flex',gap:'4px',marginTop:'4px'}}>
+                        <button onClick={()=> updateRequestStatus(req.id, 'approved')} style={{padding:'4px 8px',background:'#4caf50',color:'white',border:'none',borderRadius:'4px'}}>承認</button>
+                        <button onClick={()=> updateRequestStatus(req.id, 'rejected')} style={{padding:'4px 8px',background:'#f44336',color:'white',border:'none',borderRadius:'4px'}}>拒否</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1155,19 +1191,67 @@ function App() {
                   <li onClick={()=>alert("規約：個人利用のため、責任は負いかねます。")}>📜 規約</li>
                   <li onClick={()=>window.open("https://github.com/Meowx7")}>🐱 GitHub</li>
                   <li onClick={handleLogout} style={{color:'#ff5252'}}>🚪 ログアウト</li>
-                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.2.1 (exists修正版)</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.4.0 (グループ/メンバー追加ボタン追加)</li>
                 </ul>
                 <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold'}}>閉じる</button>
               </div>
             )}
             {activeModal === 'add_photo' && (
-              <div><h3>新規追加</h3><input type="text" id="modal_name" autoFocus /><button onClick={()=>{const v=document.getElementById('modal_name').value; if(v){ const newItem={id:genId(),group:selectedGroup,member:selectedMember,name:v,yori:0,chuu:0,hiki:0,syori:0,schuu:0,shiki:0,isWish:false,createdAt:Date.now(),memo:'',price:'',source:'入手先',thumbnail:'',otherImages:[],tags:[],order:items.length}; setItems(p=>[...p,newItem]); setActiveModal(null); }}} style={{width:'100%',padding:12,background:'#2196f3',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>追加</button></div>
+              <div>
+                <h3>新規追加</h3>
+                <input type="text" id="modal_name" autoFocus />
+                <button onClick={()=>{
+                  const v = document.getElementById('modal_name').value;
+                  if(v){ 
+                    const newItem = {
+                      id: genId(),
+                      group: selectedGroup,
+                      member: selectedMember,
+                      name: v,
+                      yori:0, chuu:0, hiki:0, syori:0, schuu:0, shiki:0,
+                      isWish: false,
+                      createdAt: Date.now(),
+                      memo: '',
+                      price: '',
+                      source: '入手先',
+                      thumbnail: '',
+                      otherImages: [],
+                      tags: [],
+                      order: items.length
+                    };
+                    setItems(p => [...p, newItem]);
+                    setActiveModal(null);
+                  }
+                }} style={{width:'100%',padding:12,background:'#2196f3',color:'#fff',border:'none',borderRadius:8,marginTop:10}}>追加</button>
+              </div>
             )}
             {activeModal === 'add_group' && (
-              <div><h3>グループ追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim(); if(!val) return showError("入力してください"); setGroups(p=>[...p,{name:val,members:[]}]); setActiveModal(null); }}}/></div>
+              <div>
+                <h3>グループ追加</h3>
+                <input 
+                  type="text" 
+                  autoFocus 
+                  value={newGroupName}
+                  onChange={e => setNewGroupName(e.target.value)}
+                  onKeyDown={e => { if(e.key === 'Enter') handleAddGroup(); }}
+                  style={{width:'100%', padding:'8px', marginBottom:'10px', borderRadius:'4px', border:'1px solid #ccc'}}
+                />
+                <button onClick={handleAddGroup} style={{width:'100%',padding:12,background:'#2196f3',color:'#fff',border:'none',borderRadius:8}}>追加</button>
+              </div>
             )}
             {activeModal === 'add_member' && (
-              <div><h3>メンバー追加</h3><input type="text" autoFocus onKeyDown={e=>{if(e.key==='Enter'){const val=e.target.value.trim(); if(!val) return showError("入力してください"); setGroups(p=>p.map(g=>g.name===selectedGroup?{...g,members:[...g.members,val]}:g)); setActiveModal(null); }}}/></div>
+              <div>
+                <h3>メンバー追加</h3>
+                <input 
+                  type="text" 
+                  autoFocus 
+                  value={newMemberName}
+                  onChange={e => setNewMemberName(e.target.value)}
+                  onKeyDown={e => { if(e.key === 'Enter') handleAddMember(); }}
+                  style={{width:'100%', padding:'8px', marginBottom:'10px', borderRadius:'4px', border:'1px solid #ccc'}}
+                />
+                <button onClick={handleAddMember} style={{width:'100%',padding:12,background:'#2196f3',color:'#fff',border:'none',borderRadius:8}}>追加</button>
+              </div>
             )}
             {activeModal === 'edit_img' && (
               <div>
