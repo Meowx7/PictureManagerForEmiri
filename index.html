@@ -363,7 +363,8 @@ function App() {
     try {
       const docRef = window.fb.collection('shares').doc(shareId);
       const snap = await docRef.get();
-      if (snap.exists()) {
+      // ★ 修正点：exists はプロパティなので () 不要
+      if (snap.exists) {
         const data = snap.data();
         setShareOwner(data.ownerId);
         setShareListName(data.listName || "共有リスト");
@@ -417,7 +418,8 @@ function App() {
       setIsLoading(true);
       const docRef = window.fb.collection('users').doc(userId).collection('data').doc('photocards');
       const snap = await docRef.get();
-      if (snap.exists()) {
+      // ★ 修正点：exists はプロパティなので () 不要
+      if (snap.exists) {
         const data = snap.data();
         if (Array.isArray(data.groups) && data.groups.length) {
           setGroups(data.groups);
@@ -1153,7 +1155,7 @@ function App() {
                   <li onClick={()=>alert("規約：個人利用のため、責任は負いかねます。")}>📜 規約</li>
                   <li onClick={()=>window.open("https://github.com/Meowx7")}>🐱 GitHub</li>
                   <li onClick={handleLogout} style={{color:'#ff5252'}}>🚪 ログアウト</li>
-                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.2.0 (完全版)</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.2.1 (exists修正版)</li>
                 </ul>
                 <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold'}}>閉じる</button>
               </div>
