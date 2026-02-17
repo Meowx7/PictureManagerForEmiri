@@ -62,6 +62,56 @@
       });
     }
   </script>
+  <style>
+    /* ドラッグ＆ドロップ操作性改善のための追加スタイル */
+    .photo-card.is-dragging {
+      opacity: 0.8 !important;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.2) !important;
+      transform: scale(1.02) rotate(1deg) !important;
+      transition: transform 0.1s ease, box-shadow 0.1s ease !important;
+      z-index: 9999 !important;
+      cursor: grabbing !important;
+    }
+    
+    /* ゴースト要素のスタイル（SortableJS ネイティブドラッグ用） */
+    .sortable-ghost {
+      opacity: 0.4 !important;
+      background: #e0e0e0 !important;
+      border: 2px dashed #2196f3 !important;
+    }
+    
+    /* ドラッグハンドルを大きく */
+    .drag-handle {
+      left: -20px;
+      width: 44px;
+      height: 44px;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.8);
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      cursor: grab;
+    }
+    
+    .dark-mode .drag-handle {
+      background: rgba(30,30,30,0.8);
+      border-color: #444;
+    }
+    
+    .drag-handle:active {
+      cursor: grabbing;
+    }
+    
+    @media (max-width: 768px) {
+      .drag-handle {
+        left: -15px;
+        width: 40px;
+        height: 40px;
+      }
+    }
+  </style>
 </head>
 <body>
   <div id="root"></div>
@@ -224,7 +274,7 @@ function App() {
   const [editingTagId, setEditingTagId] = useState(null);
   const [tempTagInput, setTempTagInput] = useState("");
   
-  // グループ・メンバー追加用のstate（新規）
+  // グループ・メンバー追加用のstate
   const [newGroupName, setNewGroupName] = useState("");
   const [newMemberName, setNewMemberName] = useState("");
   
@@ -526,7 +576,7 @@ function App() {
     }));
   };
 
-  // SortableJSのセットアップ
+  // SortableJSのセットアップ（操作性改善版）
   useEffect(() => {
     if (!isManageMode || sortBy !== "manual" || !listContainerRef.current || viewingShareId) {
       if (sortableInstance.current) {
@@ -546,6 +596,7 @@ function App() {
         const { oldIndex, newIndex } = evt;
         if (oldIndex === newIndex) return;
 
+        // 現在表示中のアイテム（フィルタ済み）を取得
         const filtered = items.filter(i => 
           (selectedGroup === "ALL" || i.group === selectedGroup) &&
           (selectedMember === "ALL" || i.member === selectedMember) &&
@@ -565,14 +616,16 @@ function App() {
           return item;
         }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
       },
-      forceFallback: true,
-      fallbackClass: 'sortable-fallback',
-      fallbackOnBody: true,
-      touchStartThreshold: 2,
+      // 操作性向上のための設定
+      forceFallback: false,        // ネイティブドラッグを使用（マウス追従向上）
+      ghostClass: 'sortable-ghost', // ゴースト要素のクラス
+      dragClass: 'is-dragging',     // ドラッグ中の要素に追加するクラス
       scroll: true,
-      scrollSensitivity: 30,
-      scrollSpeed: 10,
+      scrollSensitivity: 50,
+      scrollSpeed: 15,
       bubbleScroll: true,
+      // タッチデバイス用設定
+      touchStartThreshold: 2,
     });
 
     return () => {
@@ -1191,7 +1244,7 @@ function App() {
                   <li onClick={()=>alert("規約：個人利用のため、責任は負いかねます。")}>📜 規約</li>
                   <li onClick={()=>window.open("https://github.com/Meowx7")}>🐱 GitHub</li>
                   <li onClick={handleLogout} style={{color:'#ff5252'}}>🚪 ログアウト</li>
-                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.4.0 (グループ/メンバー追加ボタン追加)</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.5.0 (ドラッグ操作性改善)</li>
                 </ul>
                 <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold'}}>閉じる</button>
               </div>
