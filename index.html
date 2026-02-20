@@ -120,7 +120,7 @@
     /* ストック領域（固定） */
     .stock-area {
       position: sticky;
-      top: 60px; /* トップバーの高さ分 */
+      top: 60px;
       z-index: 100;
       background: var(--light-card);
       border-bottom: 1px solid var(--light-border);
@@ -145,6 +145,7 @@
       padding: var(--space-xs);
       text-align: center;
       cursor: grab;
+      position: relative; /* ハンドル配置用 */
     }
     .dark-mode .stock-item {
       background: var(--color-card-hover);
@@ -160,6 +161,21 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    /* ストックアイテム用のドラッグハンドル（小さめに） */
+    .stock-item .drag-handle {
+      position: absolute;
+      left: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 30px;
+      height: 30px;
+      font-size: 16px;
+      background: rgba(255,255,255,0.9);
+      border-radius: 6px;
+    }
+    .dark-mode .stock-item .drag-handle {
+      background: rgba(40,40,40,0.9);
     }
     .stock-empty {
       color: var(--light-text-secondary);
@@ -625,18 +641,27 @@ function App() {
     }));
   };
 
-  // ストック操作
+  // ストック操作（クラッシュ修正）
   const toggleStock = (itemId) => {
-    setStockedItemIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
-    );
+    try {
+      setStockedItemIds(prev => {
+        if (prev.includes(itemId)) {
+          return prev.filter(id => id !== itemId);
+        } else {
+          return [...prev, itemId];
+        }
+      });
+    } catch (e) {
+      console.error('toggleStock error:', e);
+      showError('ストック操作に失敗しました');
+    }
   };
 
   const isTouchDevice = useMemo(() => {
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   }, []);
 
-  // SortableJSのセットアップ（メインリストとストックリスト）
+  // SortableJSのセットアップ（シンプルな移動処理に修正）
   useEffect(() => {
     if (!isManageMode || sortBy !== "manual" || viewingShareId) {
       if (sortableMain.current) sortableMain.current.destroy();
@@ -646,7 +671,6 @@ function App() {
       return;
     }
 
-    // 既存インスタンス破棄
     if (sortableMain.current) sortableMain.current.destroy();
     if (sortableStock.current) sortableStock.current.destroy();
 
@@ -667,42 +691,43 @@ function App() {
         const isToMain = to.classList.contains('main-list');
         const itemId = item.dataset.itemId;
 
+        if (!itemId) return;
+
         if (isFromMain && isToMain) {
           // メインリスト内での移動
-          const filtered = items.filter(i => 
-            (selectedGroup === "ALL" || i.group === selectedGroup) &&
-            (selectedMember === "ALL" || i.member === selectedMember) &&
-            i.name.toLowerCase().includes(search.toLowerCase()) &&
-            (!showOnlyWish || i.isWish)
-          );
-          const sorted = [...filtered].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-          const [moved] = sorted.splice(oldIndex, 1);
-          sorted.splice(newIndex, 0, moved);
-          const orderMap = new Map();
-          sorted.forEach((item, idx) => orderMap.set(item.id, idx));
-          setItems(prev => prev.map(item => {
-            if (orderMap.has(item.id)) return { ...item, order: orderMap.get(item.id) };
-            return item;
-          }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+          setItems(prev => {
+            const filtered = prev.filter(i => 
+              (selectedGroup === "ALL" || i.group === selectedGroup) &&
+              (selectedMember === "ALL" || i.member === selectedMember) &&
+              i.name.toLowerCase().includes(search.toLowerCase()) &&
+              (!showOnlyWish || i.isWish)
+            );
+            const sorted = [...filtered].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            const [moved] = sorted.splice(oldIndex, 1);
+            sorted.splice(newIndex, 0, moved);
+            const orderMap = new Map(sorted.map((it, idx) => [it.id, idx]));
+            return prev.map(i => orderMap.has(i.id) ? { ...i, order: orderMap.get(i.id) } : i)
+                      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+          });
         } else if (isFromMain && !isToMain) {
-          // メイン → ストック
+          // メイン → ストック（移動）
           setStockedItemIds(prev => [...prev, itemId]);
-          // メインから削除（ストックに移動する場合は削除）
           setItems(prev => prev.filter(i => i.id !== itemId));
         } else if (!isFromMain && isToMain) {
-          // ストック → メイン
+          // ストック → メイン（挿入）
           setStockedItemIds(prev => prev.filter(id => id !== itemId));
-          // メインに追加（位置 newIndex に挿入）
           setItems(prev => {
+            // 移動するアイテムをitemsから探す（通常はitemsに含まれていないはずだが念のため）
             const movedItem = items.find(i => i.id === itemId) || stockedItems.find(i => i.id === itemId);
             if (!movedItem) return prev;
-            const newItem = { ...movedItem, order: newIndex };
-            const newItems = [...prev, newItem];
-            return newItems.map((it, idx) => ({ ...it, order: idx })).sort((a, b) => a.order - b.order);
+            // 新しいアイテムを追加（仮のorder、後で振り直し）
+            const newItems = [...prev, { ...movedItem, order: newIndex }];
+            // orderを0から振り直す
+            return newItems.map((it, idx) => ({ ...it, order: idx }))
+                           .sort((a, b) => a.order - b.order);
           });
-        } else {
-          // ストック内での移動（現状は特に処理不要）
         }
+        // ストック内での移動は何もしない（順不同でOK）
       },
     };
 
@@ -1051,6 +1076,8 @@ function App() {
             ) : (
               stockedItems.map(item => (
                 <div key={item.id} data-item-id={item.id} className="stock-item">
+                  {/* ドラッグハンドル（ストックアイテム用） */}
+                  <div className="drag-handle" title="ドラッグして移動">⋮⋮</div>
                   {item.thumbnail ? (
                     <img src={item.thumbnail} alt={item.name} />
                   ) : (
@@ -1067,7 +1094,7 @@ function App() {
       <div className="main-layout">
         {isManageMode && sortBy === "manual" && (
           <div className="sort-helper">
-            <span className="sort-hint">✨ ハンドル（⋮⋮）を長押ししてドラッグ<br /><small>アイテムをストックに移動できます</small></span>
+            <span className="sort-hint">✨ ハンドル（⋮⋮）を長押ししてドラッグ<br /><small>アイテムをストックに移動・ストックから挿入できます</small></span>
             <button className="reset-order-btn" onClick={resetOrder}>🔄 現在の並び順をリセット</button>
           </div>
         )}
@@ -1378,7 +1405,7 @@ function App() {
                   <li onClick={()=>alert("規約：個人利用のため、責任は負いかねます。")}>📜 規約</li>
                   <li onClick={()=>window.open("https://github.com/Meowx7")}>🐱 GitHub</li>
                   <li onClick={handleLogout} style={{color:'#ff5252'}}>🚪 ログアウト</li>
-                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 3.1.0 (ストック固定)</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 3.2.0 (ストック改善・クラッシュ修正)</li>
                 </ul>
                 <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold'}}>閉じる</button>
               </div>
