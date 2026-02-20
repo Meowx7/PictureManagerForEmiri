@@ -24,7 +24,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   
   <script>
-    // Firebase 設定（ご自身のものに変更してください）
+    // Firebase 設定
     const firebaseConfig = {
       apiKey: "AIzaSyC183tcN__mG5zNx2FG__9g3zkZWpszJ_k",
       authDomain: "picturemanager-f139d.firebaseapp.com",
@@ -34,15 +34,12 @@
       appId: "1:893316957167:web:1cddf45fd9fd0e9145ac1a"
     };
     
-    // Firebase 初期化
     if (typeof firebase !== 'undefined') {
       firebase.initializeApp(firebaseConfig);
-      console.log('Firebase initialized');
     } else {
       console.error('Firebase SDK not loaded');
     }
     
-    // グローバルAPI（簡略化）
     window.fb = {
       auth: firebase.auth(),
       db: firebase.firestore(),
@@ -63,7 +60,7 @@
     }
   </script>
   <style>
-    /* ===== ドラッグ＆ドロップ操作性改善（デバイス別最適化） ===== */
+    /* ドラッグ＆ドロップ用スタイル */
     .photo-card.is-dragging {
       opacity: 0.8 !important;
       box-shadow: 0 10px 20px rgba(0,0,0,0.2) !important;
@@ -79,7 +76,6 @@
       border: 2px dashed #2196f3 !important;
     }
     
-    /* ドラッグハンドル（共通） */
     .drag-handle {
       position: absolute;
       left: -20px;
@@ -98,7 +94,6 @@
       cursor: grab;
       user-select: none;
       z-index: 10;
-      transition: all 0.2s ease;
     }
     
     .dark-mode .drag-handle {
@@ -107,11 +102,6 @@
       border-color: #444;
     }
     
-    .drag-handle:active {
-      cursor: grabbing;
-    }
-    
-    /* スマホ向けハンドル拡大 */
     @media (max-width: 768px) {
       .drag-handle {
         left: -10px;
@@ -229,7 +219,6 @@ const compressImage = (file, maxWidth = 500) => {
   });
 };
 
-// Firestore保存用にデータからundefinedを取り除く関数
 const cleanData = (obj) => {
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(item => cleanData(item));
@@ -289,21 +278,41 @@ function App() {
   const [editingTagId, setEditingTagId] = useState(null);
   const [tempTagInput, setTempTagInput] = useState("");
   
-  // グループ・メンバー追加用のstate
   const [newGroupName, setNewGroupName] = useState("");
   const [newMemberName, setNewMemberName] = useState("");
   
-  // 共有機能関連
   const [shareLists, setShareLists] = useState([]);
   const [viewingShareId, setViewingShareId] = useState(null);
   const [sharedItems, setSharedItems] = useState([]);
   const [shareOwner, setShareOwner] = useState(null);
   const [shareListName, setShareListName] = useState("");
-  const [requests, setRequests] = useState([]); // 未解決リクエストのみ保持
+  const [requests, setRequests] = useState([]);
   
-  // Sortable用のref
   const listContainerRef = useRef(null);
   const sortableInstance = useRef(null);
+
+  // 自動スクロール用の状態
+  const [scrollDirection, setScrollDirection] = useState(0);
+  const lastMousePosition = useRef({ x: 0, y: 0 });
+
+  // スクロール処理
+  const optimizedScroll = useCallback(() => {
+    if (scrollDirection === 0) return;
+    const step = scrollDirection * 10; // 1フレームあたりのスクロール量
+    window.scrollBy(0, step);
+  }, [scrollDirection]);
+
+  // requestAnimationFrame ループ
+  useEffect(() => {
+    if (scrollDirection === 0) return;
+    let rafId;
+    const loop = () => {
+      optimizedScroll();
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [scrollDirection, optimizedScroll]);
 
   // URLパラメータからshareIdを読み取り
   useEffect(() => {
@@ -322,7 +331,6 @@ function App() {
     setMessageTimeout(setTimeout(() => setErrorMsg(""), duration));
   }, [messageTimeout]);
 
-  // テンプレートチェック
   const checkTemplateFiles = useCallback(async () => {
     const existing = [];
     for (const name of AVAILABLE_TEMPLATES) {
@@ -335,16 +343,13 @@ function App() {
   // Firebaseログイン状態監視
   useEffect(() => {
     if (!window.fb || !window.fb.auth) {
-      console.error("Firebaseが初期化されていません");
       setAuthError("Firebase initialization failed");
       setIsAuthReady(true);
       return;
     }
     
-    console.log("Setting up onAuthStateChanged");
     const unsubscribe = window.fb.auth.onAuthStateChanged(
       (currentUser) => {
-        console.log("Auth state changed:", currentUser ? currentUser.email : "null");
         setUser(currentUser);
         setIsAuthReady(true);
         if (currentUser) {
@@ -354,17 +359,13 @@ function App() {
         }
       },
       (error) => {
-        console.error("Auth error:", error);
         setAuthError(error.message);
         setIsAuthReady(true);
       }
     );
     
     const timer = setTimeout(() => {
-      if (!isAuthReady) {
-        console.warn("Auth state observer timeout - forcing ready");
-        setIsAuthReady(true);
-      }
+      if (!isAuthReady) setIsAuthReady(true);
     }, 3000);
     
     checkTemplateFiles();
@@ -375,7 +376,6 @@ function App() {
     };
   }, []);
 
-  // 自分の共有リスト一覧をFirestoreから読み込み
   const loadShareLists = async (uid) => {
     try {
       const q = window.fb.collection('shares').where('ownerId', '==', uid);
@@ -387,7 +387,6 @@ function App() {
     }
   };
 
-  // 未解決（pending）のリクエストのみ読み込む
   const loadPendingRequests = async (uid) => {
     try {
       const q = window.fb.collection('requests')
@@ -401,7 +400,6 @@ function App() {
     }
   };
 
-  // 共有リストを作成（アイテム詳細も保存）
   const createShareListWithItems = async (listName, selectedItemIds) => {
     if (!user) return;
     const shareId = genShareId();
@@ -423,12 +421,10 @@ function App() {
       loadShareLists(user.uid);
       return shareId;
     } catch (e) {
-      console.error("共有リスト作成エラー:", e);
       showError("作成失敗: " + e.message);
     }
   };
 
-  // 共有リストを削除
   const deleteShareList = async (shareId) => {
     if (!confirm("この共有リストを削除しますか？")) return;
     try {
@@ -436,12 +432,10 @@ function App() {
       showError("共有リストを削除しました");
       loadShareLists(user.uid);
     } catch (e) {
-      console.error("共有リスト削除エラー:", e);
       showError("削除失敗: " + e.message);
     }
   };
 
-  // 共有リストを読み込む（公開ビュー用）
   const loadSharedList = async (shareId) => {
     try {
       const docRef = window.fb.collection('shares').doc(shareId);
@@ -455,12 +449,10 @@ function App() {
         showError("共有リストが見つかりません");
       }
     } catch (e) {
-      console.error("共有リスト読み込みエラー:", e);
       showError("読み込み失敗");
     }
   };
 
-  // リクエスト送信
   const sendRequest = async (shareId, itemId) => {
     if (!user) {
       showError("リクエストにはログインが必要です");
@@ -479,19 +471,16 @@ function App() {
       await window.fb.collection('requests').add(cleanData(requestData));
       showError("リクエストを送信しました");
     } catch (e) {
-      console.error("リクエスト送信エラー:", e);
       showError("リクエスト送信失敗");
     }
   };
 
-  // リクエストの状態更新（承認/拒否）
   const updateRequestStatus = async (requestId, status) => {
     try {
       await window.fb.collection('requests').doc(requestId).set({ status }, { merge: true });
       loadPendingRequests(user.uid);
       showError(`リクエストを${status === 'approved' ? '承認' : '拒否'}しました`);
     } catch (e) {
-      console.error("リクエスト更新エラー:", e);
       showError("更新失敗");
     }
   };
@@ -513,7 +502,6 @@ function App() {
         setLastSaved(new Date().toLocaleTimeString());
       } else await saveToFirestore(userId);
     } catch (e) { 
-      console.error("Firestore読み込みエラー:", e); 
       showError("クラウド読み込み失敗: " + e.message); 
     } finally { setIsLoading(false); }
   };
@@ -526,20 +514,17 @@ function App() {
       showError("クラウドに保存しました ✓");
       setLastSaved(new Date().toLocaleTimeString());
     } catch (e) { 
-      console.error("保存エラー:", e); 
       showError(`保存失敗: ${e.message}`); 
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items })); 
     }
   };
 
-  // ローカル保存
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
     localStorage.setItem("dark_mode", isDarkMode);
     localStorage.setItem("app_width", appWidth);
   }, [groups, items, isDarkMode, appWidth]);
 
-  // 自動Firestore保存
   useEffect(() => {
     if (!user) return;
     const timer = setTimeout(() => saveToFirestore(user.uid), 20000);
@@ -548,12 +533,8 @@ function App() {
 
   const handleGoogleLogin = async () => {
     try {
-      setAuthError(null);
-      const result = await window.fb.auth.signInWithPopup(window.fb.provider);
-      console.log("Login success:", result.user.email);
+      await window.fb.auth.signInWithPopup(window.fb.provider);
     } catch (error) {
-      console.error("Login error:", error);
-      setAuthError(error.message);
       showError("ログイン失敗: " + error.message);
     }
   };
@@ -563,7 +544,6 @@ function App() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items }));
       await window.fb.auth.signOut();
     } catch (error) {
-      console.error("Logout error:", error);
       showError("ログアウト失敗: " + error.message);
     }
   };
@@ -575,7 +555,6 @@ function App() {
   const toggleSelectItem = (id) => { if (!isManageMode) return; setSelectedItemIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); };
   const toggleSignCounters = (id) => setExpandedSignItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
 
-  // タグ操作
   const addTag = (id, tag) => {
     if (!tag.trim()) return;
     setItems(p => p.map(i => {
@@ -591,12 +570,11 @@ function App() {
     }));
   };
 
-  // デバイス判定
   const isTouchDevice = useMemo(() => {
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   }, []);
 
-  // SortableJSのセットアップ（デバイス別最適化）
+  // SortableJSのセットアップ（自前スクロール連携）
   useEffect(() => {
     if (!isManageMode || sortBy !== "manual" || !listContainerRef.current || viewingShareId) {
       if (sortableInstance.current) {
@@ -608,16 +586,15 @@ function App() {
 
     if (sortableInstance.current) sortableInstance.current.destroy();
 
-    // デバイス別オプション
     const baseOptions = {
       animation: 200,
       handle: '.drag-handle',
       draggable: '.photo-card',
       onEnd: (evt) => {
+        setScrollDirection(0); // ドラッグ終了でスクロール停止
         const { oldIndex, newIndex } = evt;
         if (oldIndex === newIndex) return;
 
-        // 現在表示中のアイテム（フィルタ済み）を取得
         const filtered = items.filter(i => 
           (selectedGroup === "ALL" || i.group === selectedGroup) &&
           (selectedMember === "ALL" || i.member === selectedMember) &&
@@ -637,24 +614,27 @@ function App() {
           return item;
         }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
       },
-      scroll: true,
-      bubbleScroll: true,
+      // マウス移動時に座標を記録
+      onMove: (evt) => {
+        if (!isTouchDevice) { // PCのみ自前スクロール
+          lastMousePosition.current = { x: evt.clientX, y: evt.clientY };
+        }
+      },
     };
 
     const touchOptions = {
-      forceFallback: false,        // ネイティブタッチを試す
+      forceFallback: true, // タッチデバイスではフォールバックモード
+      scroll: true,
       scrollSensitivity: 80,
       scrollSpeed: 20,
-      touchStartThreshold: 1,
+      touchStartThreshold: 2,
     };
 
     const pcOptions = {
-      forceFallback: false,
+      forceFallback: false, // PCではネイティブドラッグ
       ghostClass: 'sortable-ghost',
       dragClass: 'is-dragging',
-      scrollSensitivity: 50,
-      scrollSpeed: 15,
-      touchStartThreshold: 2,
+      scroll: false, // SortableJSの自動スクロールは無効にし、自前で行う
     };
 
     const options = { ...baseOptions, ...(isTouchDevice ? touchOptions : pcOptions) };
@@ -669,13 +649,33 @@ function App() {
     };
   }, [isManageMode, sortBy, items, selectedGroup, selectedMember, search, showOnlyWish, viewingShareId, isTouchDevice]);
 
+  // PC向け自前スクロール監視
+  useEffect(() => {
+    if (!isManageMode || sortBy !== "manual" || isTouchDevice) return;
+
+    const handleMouseMove = (e) => {
+      if (!sortableInstance.current) return; // ドラッグ中でなければ無視
+      const threshold = 50;
+      const windowHeight = window.innerHeight;
+      if (e.clientY < threshold) {
+        setScrollDirection(-1);
+      } else if (e.clientY > windowHeight - threshold) {
+        setScrollDirection(1);
+      } else {
+        setScrollDirection(0);
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    return () => document.removeEventListener('mousemove', handleMouseMove);
+  }, [isManageMode, sortBy, isTouchDevice]);
+
   const quickBtnStyle = (isDark) => ({
     flex:1, padding:'8px 0', fontSize:'11px', borderRadius:'6px',
     border:'1px solid '+(isDark?'#444':'#ccc'),
     background: isDark?'#333':'#fff', color: isDark?'#fff':'#333', cursor:'pointer'
   });
 
-  // フィルタ＆ソート
   const sortedItems = useMemo(() => {
     if (viewingShareId) return sharedItems;
     let filtered = items.filter(i => 
@@ -808,7 +808,6 @@ function App() {
   const saveImages = () => { setItems(p => p.map(it => it.id===editItemId ? {...it, thumbnail: tempMainUrl, otherImages: tempImages} : it)); setActiveModal(null); };
   const handleCacheClear = () => { if(confirm("全データを削除しますか？")) { localStorage.removeItem(STORAGE_KEY); location.reload(); } };
 
-  // グループ追加処理
   const handleAddGroup = () => {
     const val = newGroupName.trim();
     if (!val) { showError("グループ名を入力してください"); return; }
@@ -817,7 +816,6 @@ function App() {
     setActiveModal(null);
   };
 
-  // メンバー追加処理
   const handleAddMember = () => {
     const val = newMemberName.trim();
     if (!val) { showError("メンバー名を入力してください"); return; }
@@ -826,7 +824,6 @@ function App() {
     setActiveModal(null);
   };
 
-  // ログイン準備中の表示
   if (!isAuthReady) {
     return (
       <div style={{display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',height:'100vh',background: isDarkMode ? '#1a1a1a' : '#f5f5f5', gap:'10px'}}>
@@ -843,7 +840,6 @@ function App() {
     );
   }
 
-  // 認証エラー表示
   if (authError) {
     return (
       <div style={{display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',height:'100vh',background:'#1a1a1a',color:'#fff',gap:20}}>
@@ -855,7 +851,6 @@ function App() {
     );
   }
 
-  // ログイン前の画面
   if (!user) {
     return (
       <div style={{display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',height:'100vh',background: isDarkMode ? '#1a1a1a' : '#f5f5f5',gap:20}}>
@@ -1216,7 +1211,6 @@ function App() {
                   </div>
                 </div>
                 
-                {/* 共有機能パネル */}
                 <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
                   <h4>共有リスト</h4>
                   <div style={{marginBottom:'10px'}}>
@@ -1247,7 +1241,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* リクエスト受信箱（未解決のみ表示） */}
                 <div style={{marginBottom:'15px',padding:'15px',background:isDarkMode?'#2a2a2a':'#f9f9f9',borderRadius:'12px'}}>
                   <h4>リクエスト受信箱（未解決）</h4>
                   {requests.length === 0 && <p style={{fontSize:'12px',color:'#888'}}>未解決のリクエストはありません</p>}
@@ -1277,7 +1270,7 @@ function App() {
                   <li onClick={()=>alert("規約：個人利用のため、責任は負いかねます。")}>📜 規約</li>
                   <li onClick={()=>window.open("https://github.com/Meowx7")}>🐱 GitHub</li>
                   <li onClick={handleLogout} style={{color:'#ff5252'}}>🚪 ログアウト</li>
-                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.6.0 (デバイス別最適化)</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 2.7.0 (自動スクロール改善)</li>
                 </ul>
                 <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold'}}>閉じる</button>
               </div>
