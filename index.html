@@ -13,7 +13,7 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- SortableJS (スマホ最適化ドラッグ) -->
+  <!-- SortableJS (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
   
   <link rel="stylesheet" href="style.css" />
@@ -24,7 +24,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
   
   <script>
-    // Firebase 設定
     const firebaseConfig = {
       apiKey: "AIzaSyC183tcN__mG5zNx2FG__9g3zkZWpszJ_k",
       authDomain: "picturemanager-f139d.firebaseapp.com",
@@ -60,22 +59,7 @@
     }
   </script>
   <style>
-    /* ドラッグ＆ドロップ用スタイル */
-    .photo-card.is-dragging {
-      opacity: 0.8 !important;
-      box-shadow: 0 10px 20px rgba(0,0,0,0.2) !important;
-      transform: scale(1.02) rotate(1deg) !important;
-      transition: transform 0.1s ease, box-shadow 0.1s ease !important;
-      z-index: 9999 !important;
-      cursor: grabbing !important;
-    }
-    
-    .sortable-ghost {
-      opacity: 0.4 !important;
-      background: #e0e0e0 !important;
-      border: 2px dashed #2196f3 !important;
-    }
-    
+    /* ドラッグハンドルのスタイル（既存のstyle.cssに追加） */
     .drag-handle {
       position: absolute;
       left: -20px;
@@ -95,13 +79,11 @@
       user-select: none;
       z-index: 10;
     }
-    
     .dark-mode .drag-handle {
       color: #ccc;
       background: rgba(30,30,30,0.8);
       border-color: #444;
     }
-    
     @media (max-width: 768px) {
       .drag-handle {
         left: -10px;
@@ -117,95 +99,20 @@
       }
     }
 
-    /* ストック領域（固定） */
-    .stock-area {
-      position: sticky;
-      top: 60px;
-      z-index: 100;
-      background: var(--light-card);
-      border-bottom: 1px solid var(--light-border);
-      padding: var(--space-md);
-      margin: 0;
-      overflow-x: auto;
-      white-space: nowrap;
-      min-height: 100px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    /* ドラッグ中のカードの見た目 */
+    .photo-card.is-dragging {
+      opacity: 0.8 !important;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.2) !important;
+      transform: scale(1.02) rotate(1deg) !important;
+      transition: transform 0.1s ease, box-shadow 0.1s ease !important;
+      z-index: 9999 !important;
+      cursor: grabbing !important;
     }
-    .dark-mode .stock-area {
-      background: var(--color-card);
-      border-color: var(--color-border);
-    }
-    .stock-item {
-      display: inline-block;
-      width: 80px;
-      margin-right: var(--space-sm);
-      vertical-align: top;
-      background: var(--light-card-hover);
-      border-radius: var(--radius-md);
-      padding: var(--space-xs);
-      text-align: center;
-      cursor: grab;
-      position: relative; /* ハンドル配置用 */
-    }
-    .dark-mode .stock-item {
-      background: var(--color-card-hover);
-    }
-    .stock-item img {
-      width: 100%;
-      height: 60px;
-      object-fit: cover;
-      border-radius: var(--radius-sm);
-    }
-    .stock-item .name {
-      font-size: var(--font-xs);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    /* ストックアイテム用のドラッグハンドル（小さめに） */
-    .stock-item .drag-handle {
-      position: absolute;
-      left: -10px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 30px;
-      height: 30px;
-      font-size: 16px;
-      background: rgba(255,255,255,0.9);
-      border-radius: 6px;
-    }
-    .dark-mode .stock-item .drag-handle {
-      background: rgba(40,40,40,0.9);
-    }
-    .stock-empty {
-      color: var(--light-text-secondary);
-      font-style: italic;
-      text-align: center;
-      padding: var(--space-lg);
-    }
-
-    /* ストックボタン */
-    .stock-btn {
-      background: none;
-      border: 1px solid #ccc;
-      border-radius: var(--radius-sm);
-      padding: 2px 6px;
-      font-size: 14px;
-      cursor: pointer;
-      margin-left: 4px;
-    }
-    .stock-btn.active {
-      background: #4caf50;
-      color: white;
-      border-color: #4caf50;
-    }
-
-    /* トップバーの高さ調整 */
-    .top-bar {
-      height: 60px;
-    }
-    .main-layout {
-      margin-top: 0;
+    
+    .sortable-ghost {
+      opacity: 0.4 !important;
+      background: #e0e0e0 !important;
+      border: 2px dashed #2196f3 !important;
     }
   </style>
 </head>
@@ -340,7 +247,6 @@ function App() {
     if (saved) { const p = JSON.parse(saved); if (Array.isArray(p.items)) return p.items.map((item, index) => ({ ...item, order: item.order !== undefined ? item.order : index, tags: item.tags || [] })); }
     return [];
   });
-  const [stockedItemIds, setStockedItemIds] = useState([]); // ストックされたアイテムのID
   const [selectedGroup, setSelectedGroup] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) { const p = JSON.parse(saved); if (Array.isArray(p.groups) && p.groups.length) return p.groups[0].name; }
@@ -353,7 +259,7 @@ function App() {
   });
   const [showOnlyWish, setShowOnlyWish] = useState(false);
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("new");
+  const [sortBy, setSortBy] = useState("new");  // "manual" を追加予定
   const [activeModal, setActiveModal] = useState(null);
   const [editItemId, setEditItemId] = useState(null);
   const [editingNameId, setEditingNameId] = useState(null);
@@ -367,8 +273,6 @@ function App() {
   const [selectedItemIds, setSelectedItemIds] = useState([]);
   const [expandedSignItems, setExpandedSignItems] = useState([]);
   const [messageTimeout, setMessageTimeout] = useState(null);
-  const [editingTagId, setEditingTagId] = useState(null);
-  const [tempTagInput, setTempTagInput] = useState("");
   
   const [newGroupName, setNewGroupName] = useState("");
   const [newMemberName, setNewMemberName] = useState("");
@@ -379,11 +283,10 @@ function App() {
   const [shareOwner, setShareOwner] = useState(null);
   const [shareListName, setShareListName] = useState("");
   const [requests, setRequests] = useState([]);
-  
-  const mainListRef = useRef(null);
-  const stockListRef = useRef(null);
-  const sortableMain = useRef(null);
-  const sortableStock = useRef(null);
+
+  // SortableJS 用の ref
+  const listContainerRef = useRef(null);
+  const sortableInstance = useRef(null);
 
   // URLパラメータからshareIdを読み取り
   useEffect(() => {
@@ -641,137 +544,78 @@ function App() {
     }));
   };
 
-  // ストック操作（クラッシュ修正）
-  const toggleStock = (itemId) => {
-    try {
-      setStockedItemIds(prev => {
-        if (prev.includes(itemId)) {
-          return prev.filter(id => id !== itemId);
-        } else {
-          return [...prev, itemId];
-        }
-      });
-    } catch (e) {
-      console.error('toggleStock error:', e);
-      showError('ストック操作に失敗しました');
-    }
-  };
-
-  const isTouchDevice = useMemo(() => {
-    return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  }, []);
-
-  // SortableJSのセットアップ（シンプルな移動処理に修正）
-  useEffect(() => {
-    if (!isManageMode || sortBy !== "manual" || viewingShareId) {
-      if (sortableMain.current) sortableMain.current.destroy();
-      if (sortableStock.current) sortableStock.current.destroy();
-      sortableMain.current = null;
-      sortableStock.current = null;
-      return;
-    }
-
-    if (sortableMain.current) sortableMain.current.destroy();
-    if (sortableStock.current) sortableStock.current.destroy();
-
-    const groupOptions = {
-      name: 'shared',
-      pull: true,
-      revertClone: false,
-    };
-
-    const baseOptions = {
-      animation: 200,
-      handle: '.drag-handle',
-      draggable: '.photo-card, .stock-item',
-      group: groupOptions,
-      onEnd: (evt) => {
-        const { from, to, oldIndex, newIndex, item } = evt;
-        const isFromMain = from.classList.contains('main-list');
-        const isToMain = to.classList.contains('main-list');
-        const itemId = item.dataset.itemId;
-
-        if (!itemId) return;
-
-        if (isFromMain && isToMain) {
-          // メインリスト内での移動
-          setItems(prev => {
-            const filtered = prev.filter(i => 
-              (selectedGroup === "ALL" || i.group === selectedGroup) &&
-              (selectedMember === "ALL" || i.member === selectedMember) &&
-              i.name.toLowerCase().includes(search.toLowerCase()) &&
-              (!showOnlyWish || i.isWish)
-            );
-            const sorted = [...filtered].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-            const [moved] = sorted.splice(oldIndex, 1);
-            sorted.splice(newIndex, 0, moved);
-            const orderMap = new Map(sorted.map((it, idx) => [it.id, idx]));
-            return prev.map(i => orderMap.has(i.id) ? { ...i, order: orderMap.get(i.id) } : i)
-                      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-          });
-        } else if (isFromMain && !isToMain) {
-          // メイン → ストック（移動）
-          setStockedItemIds(prev => [...prev, itemId]);
-          setItems(prev => prev.filter(i => i.id !== itemId));
-        } else if (!isFromMain && isToMain) {
-          // ストック → メイン（挿入）
-          setStockedItemIds(prev => prev.filter(id => id !== itemId));
-          setItems(prev => {
-            // 移動するアイテムをitemsから探す（通常はitemsに含まれていないはずだが念のため）
-            const movedItem = items.find(i => i.id === itemId) || stockedItems.find(i => i.id === itemId);
-            if (!movedItem) return prev;
-            // 新しいアイテムを追加（仮のorder、後で振り直し）
-            const newItems = [...prev, { ...movedItem, order: newIndex }];
-            // orderを0から振り直す
-            return newItems.map((it, idx) => ({ ...it, order: idx }))
-                           .sort((a, b) => a.order - b.order);
-          });
-        }
-        // ストック内での移動は何もしない（順不同でOK）
-      },
-    };
-
-    const touchOptions = {
-      forceFallback: true,
-      scroll: true,
-      scrollSensitivity: 80,
-      scrollSpeed: 20,
-      touchStartThreshold: 2,
-    };
-
-    const pcOptions = {
-      forceFallback: false,
-      ghostClass: 'sortable-ghost',
-      dragClass: 'is-dragging',
-    };
-
-    const options = { ...baseOptions, ...(isTouchDevice ? touchOptions : pcOptions) };
-
-    if (mainListRef.current) {
-      sortableMain.current = new Sortable(mainListRef.current, options);
-    }
-    if (stockListRef.current) {
-      sortableStock.current = new Sortable(stockListRef.current, { ...options, group: groupOptions });
-    }
-
-    return () => {
-      if (sortableMain.current) sortableMain.current.destroy();
-      if (sortableStock.current) sortableStock.current.destroy();
-    };
-  }, [isManageMode, sortBy, items, selectedGroup, selectedMember, search, showOnlyWish, viewingShareId, isTouchDevice, stockedItemIds]);
-
   const quickBtnStyle = (isDark) => ({
     flex:1, padding:'8px 0', fontSize:'11px', borderRadius:'6px',
     border:'1px solid '+(isDark?'#444':'#ccc'),
     background: isDark?'#333':'#fff', color: isDark?'#fff':'#333', cursor:'pointer'
   });
 
-  // ストックされたアイテムのオブジェクト配列
-  const stockedItems = useMemo(() => {
-    return items.filter(i => stockedItemIds.includes(i.id));
-  }, [items, stockedItemIds]);
+  // デバイス判定（タッチデバイス向け）
+  const isTouchDevice = useMemo(() => {
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  }, []);
 
-  // フィルタ＆ソート（メインリスト用）
+  // SortableJS の初期化／破棄
+  useEffect(() => {
+    if (!isManageMode || sortBy !== "manual" || !listContainerRef.current || viewingShareId) {
+      if (sortableInstance.current) {
+        sortableInstance.current.destroy();
+        sortableInstance.current = null;
+      }
+      return;
+    }
+
+    if (sortableInstance.current) sortableInstance.current.destroy();
+
+    const options = {
+      animation: 200,
+      handle: '.drag-handle',
+      draggable: '.photo-card',
+      onEnd: (evt) => {
+        const { oldIndex, newIndex } = evt;
+        if (oldIndex === newIndex) return;
+
+        // 現在表示中のアイテム（フィルター済み）を取得
+        const filtered = items.filter(i => 
+          (selectedGroup === "ALL" || i.group === selectedGroup) &&
+          (selectedMember === "ALL" || i.member === selectedMember) &&
+          i.name.toLowerCase().includes(search.toLowerCase()) &&
+          (!showOnlyWish || i.isWish)
+        );
+        const sorted = [...filtered].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        
+        const [moved] = sorted.splice(oldIndex, 1);
+        sorted.splice(newIndex, 0, moved);
+        
+        // order を再計算
+        const orderMap = new Map();
+        sorted.forEach((item, idx) => orderMap.set(item.id, idx));
+        
+        setItems(prev => prev.map(item => {
+          if (orderMap.has(item.id)) return { ...item, order: orderMap.get(item.id) };
+          return item;
+        }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+      },
+      forceFallback: isTouchDevice,  // タッチデバイスではフォールバックモード
+      ghostClass: 'sortable-ghost',
+      dragClass: 'is-dragging',
+      scroll: true,
+      scrollSensitivity: 50,
+      scrollSpeed: 10,
+      bubbleScroll: true,
+    };
+
+    sortableInstance.current = new Sortable(listContainerRef.current, options);
+
+    return () => {
+      if (sortableInstance.current) {
+        sortableInstance.current.destroy();
+        sortableInstance.current = null;
+      }
+    };
+  }, [isManageMode, sortBy, items, selectedGroup, selectedMember, search, showOnlyWish, viewingShareId, isTouchDevice]);
+
+  // フィルタ＆ソート（手動時は order でソート）
   const sortedItems = useMemo(() => {
     if (viewingShareId) return sharedItems;
     let filtered = items.filter(i => 
@@ -825,17 +669,6 @@ function App() {
     if (type === 'delete') { setTargetName(`${selectedItemIds.length}件の選択項目`); setActiveModal('delete_batch'); }
     else if (type === 'wish') { setItems(p => p.map(i => selectedItemIds.includes(i.id) ? {...i, isWish: true} : i)); showError(`${selectedItemIds.length}件を⭐に設定`); }
     else if (type === 'stock') { setItems(p => p.map(i => selectedItemIds.includes(i.id) ? {...i, yori: (i.yori||0)+1, chuu: (i.chuu||0)+1, hiki: (i.hiki||0)+1} : i)); showError(`${selectedItemIds.length}件の在庫+1`); }
-  };
-
-  const resetOrder = () => {
-    if (confirm("並び順をリセットして新しい順に戻しますか？")) {
-      const current = items.filter(i => (selectedGroup==="ALL"||i.group===selectedGroup) && (selectedMember==="ALL"||i.member===selectedMember));
-      const sortedByDate = [...current].sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
-      const orderMap = new Map();
-      sortedByDate.forEach((it, idx) => orderMap.set(it.id, idx));
-      setItems(prev => prev.map(it => orderMap.has(it.id) ? {...it, order: orderMap.get(it.id)} : it).sort((a,b) => (a.order??0)-(b.order??0)));
-      showError("並び順をリセットしました");
-    }
   };
 
   const resetAllOrder = () => {
@@ -1063,41 +896,7 @@ function App() {
         </div>
       </div>
 
-      {/* ストック領域（管理モード時のみ表示・固定） */}
-      {isManageMode && (
-        <div className="stock-area" ref={stockListRef}>
-          <div style={{display:'flex', alignItems:'center', marginBottom:'8px'}}>
-            <strong>📦 ストック</strong>
-            <span style={{marginLeft:'auto', fontSize:'12px', color: isDarkMode?'#aaa':'#666'}}>{stockedItems.length}点</span>
-          </div>
-          <div style={{display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px'}}>
-            {stockedItems.length === 0 ? (
-              <div className="stock-empty">ストックにアイテムはありません</div>
-            ) : (
-              stockedItems.map(item => (
-                <div key={item.id} data-item-id={item.id} className="stock-item">
-                  {/* ドラッグハンドル（ストックアイテム用） */}
-                  <div className="drag-handle" title="ドラッグして移動">⋮⋮</div>
-                  {item.thumbnail ? (
-                    <img src={item.thumbnail} alt={item.name} />
-                  ) : (
-                    <div style={{height:60, background:'#eee', borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10}}>画像なし</div>
-                  )}
-                  <div className="name">{item.name}</div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="main-layout">
-        {isManageMode && sortBy === "manual" && (
-          <div className="sort-helper">
-            <span className="sort-hint">✨ ハンドル（⋮⋮）を長押ししてドラッグ<br /><small>アイテムをストックに移動・ストックから挿入できます</small></span>
-            <button className="reset-order-btn" onClick={resetOrder}>🔄 現在の並び順をリセット</button>
-          </div>
-        )}
         
         <div className="stats-card">
           <div className="stats-charts-grid">
@@ -1153,7 +952,19 @@ function App() {
               {groups.map(g=>(
                 <li key={g.name}>
                   <button className={`btn-item ${selectedGroup===g.name?'active':''}`} onClick={()=>{setSelectedGroup(g.name);setSelectedMember(g.members.length?g.members[0]:'ALL');}}>
-                    {g.name}{isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(g.name);setActiveModal('delete_group');}}>×</button>}
+                    {g.name}
+                    {isManageMode && (
+                      <span 
+                        className="btn-delete-small" 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setTargetName(g.name); 
+                          setActiveModal('delete_group'); 
+                        }}
+                      >
+                        ×
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -1167,7 +978,19 @@ function App() {
               {selectedGroup!=='ALL' && groups.find(g=>g.name===selectedGroup)?.members.map(m=>(
                 <li key={m}>
                   <button className={`btn-item ${selectedMember===m?'active':''}`} onClick={()=>setSelectedMember(m)}>
-                    {m}{isManageMode && <button className="btn-delete-small" onClick={(e)=>{e.stopPropagation();setTargetName(m);setActiveModal('delete_member');}}>×</button>}
+                    {m}
+                    {isManageMode && (
+                      <span 
+                        className="btn-delete-small" 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setTargetName(m); 
+                          setActiveModal('delete_member'); 
+                        }}
+                      >
+                        ×
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -1179,13 +1002,12 @@ function App() {
           <button className="add-trigger-btn" onClick={()=>setActiveModal('add_photo')}>＋ 生写真を追加</button>
         )}
 
-        {/* メインリストコンテナ */}
-        <div ref={mainListRef} className="main-list" style={isManageMode && sortBy==="manual" ? { minHeight: '50px' } : {}}>
+        {/* 生写真カード一覧（SortableJS 用のコンテナ） */}
+        <div ref={listContainerRef} style={isManageMode && sortBy==="manual" ? { minHeight: '50px' } : {}}>
           {sortedItems.map(i => {
             const comp = (i.yori>0||i.syori>0) && (i.chuu>0||i.schuu>0) && (i.hiki>0||i.shiki>0);
             const isSelected = selectedItemIds.includes(i.id);
             const isSignExpanded = expandedSignItems.includes(i.id);
-            const isStocked = stockedItemIds.includes(i.id);
             return (
               <div key={i.id} data-item-id={i.id} className={`photo-card ${comp?'is-complete':''} ${i.isWish?'is-wish':''}`} style={{background: isManageMode && isSelected ? 'rgba(255,82,82,0.1)' : ''}}>
                 {isManageMode && sortBy === "manual" && (
@@ -1211,16 +1033,6 @@ function App() {
                         <input className="edit-name-input" autoFocus value={i.name} onChange={e=>updateItem(i.id,'name',e.target.value)} onBlur={()=>setEditingNameId(null)} onKeyDown={e=>e.key==='Enter'&&setEditingNameId(null)} />
                       ) : (
                         <span className="name-display" onClick={()=>setEditingNameId(i.id)}>{i.name} {comp && "👍️"}</span>
-                      )}
-                      {/* ストックボタン（管理モード時のみ表示） */}
-                      {isManageMode && (
-                        <button 
-                          className={`stock-btn ${isStocked ? 'active' : ''}`}
-                          onClick={() => toggleStock(i.id)}
-                          title="ストックに追加/削除"
-                        >
-                          📦
-                        </button>
                       )}
                     </div>
                     <button onClick={()=>{setTargetName(i.name);setTargetId(i.id);setActiveModal('delete_photo');}} style={{color:'#999',border:'none',background:'none',cursor:'pointer'}}>✕</button>
@@ -1405,7 +1217,7 @@ function App() {
                   <li onClick={()=>alert("規約：個人利用のため、責任は負いかねます。")}>📜 規約</li>
                   <li onClick={()=>window.open("https://github.com/Meowx7")}>🐱 GitHub</li>
                   <li onClick={handleLogout} style={{color:'#ff5252'}}>🚪 ログアウト</li>
-                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 3.2.0 (ストック改善・クラッシュ修正)</li>
+                  <li style={{color:'#888',cursor:'default',fontSize:'11px',justifyContent:'center'}}>Version 5.0.0 (ドラッグ＆ドロップ追加)</li>
                 </ul>
                 <button onClick={()=>setActiveModal(null)} style={{width:'100%',padding:12,background:'#eee',border:'none',borderRadius:8,fontWeight:'bold'}}>閉じる</button>
               </div>
